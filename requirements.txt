@@ -1,0 +1,49 @@
+# Evidence Suite: Savant Genesis Edition
+# RTX 5090 Mobile Edition Dependencies
+
+# Core Framework
+ray[default]>=2.9.0
+pydantic>=2.5.0
+
+# Hardware Monitoring (RTX 5090 Mobile)
+pynvml>=11.5.0            # NVIDIA Management Library for thermal/VRAM monitoring
+psutil>=5.9.8             # Battery/power state detection
+
+# OCR Engines
+pytesseract>=0.3.10
+easyocr>=1.7.1
+Pillow>=10.1.0
+
+# Behavioral Analysis (BERT)
+transformers>=4.36.0
+torch>=2.1.0
+scikit-learn>=1.3.0
+
+# NLP & Sentiment
+nltk>=3.8.1
+vaderSentiment>=3.3.2
+
+# Data Processing
+numpy>=1.26.0
+pandas>=2.1.0
+
+# Async & Event Handling
+aiofiles>=23.2.1
+redis>=5.0.0
+
+# Hashing & Security
+hashlib-compat>=1.0.0
+
+# Utilities
+python-dateutil>=2.8.2
+tqdm>=4.66.0
+loguru>=0.7.2
+
+# Visualization
+matplotlib>=3.8.0
+networkx>=3.2.0
+pandas>=2.1.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0

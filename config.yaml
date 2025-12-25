@@ -1,0 +1,128 @@
+# Evidence Suite Configuration
+# Savant Genesis Edition - RTX 5090 Mobile Edition
+
+system:
+  project_name: "Evidence Suite: Savant Genesis Edition"
+  version: "0.1.0"
+  debug: false
+  hardware_profile: "rtx_5090_mobile"
+
+# =============================================================================
+# RTX 5090 MOBILE HARDWARE PROFILE
+# Optimized for Blackwell architecture under laptop thermal constraints
+# =============================================================================
+hardware:
+  gpu:
+    name: "RTX 5090 Laptop GPU"
+    architecture: "Blackwell"
+    compute_capability: "12.0"
+
+    # VRAM Management (24GB total)
+    vram_total_gb: 24
+    vram_model_limit_gb: 20      # Max for ML models
+    vram_system_buffer_gb: 4     # Reserved for OS/DWM
+    vram_warning_threshold_gb: 21
+    vram_critical_threshold_gb: 22.5
+
+    # Precision settings
+    model_precision: "bf16"      # Blackwell native - 2x speed of fp32
+    tensor_cores: true
+
+  thermal:
+    # Temperature thresholds (Celsius)
+    temp_normal: 70
+    temp_warm: 80
+    temp_hot: 85
+    temp_critical: 90
+    temp_shutdown: 95
+
+    # Throttling strategy
+    max_sustained_load: 0.80     # 80% max to prevent thermal throttling
+    cooldown_period_sec: 30      # Rest period after intensive batches
+    thermal_check_interval: 5    # Seconds between thermal checks
+
+  power:
+    # Power state management
+    ac_mode: "performance"       # Full Ray parallelization
+    battery_mode: "throttled"    # 50% worker reduction
+    battery_critical_percent: 20 # Force shutdown threshold
+
+# Ray distributed computing (mobile optimized)
+ray:
+  address: null                  # null = local mode
+  num_cpus: 16                   # Mobile multi-core optimized
+  num_gpus: 1
+  batch_size: 96                 # Balanced for 24GB VRAM
+  object_store_memory: 4000000000  # 4GB object store
+
+# OCR Agent Configuration
+ocr:
+  engines:
+    - tesseract
+    - easyocr
+  tesseract_path: "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
+  languages:
+    - en
+  confidence_threshold: 0.6
+  preprocessing: true
+  deskew: true
+  # Mobile optimization
+  max_image_size: 4096           # Limit image dimension for VRAM
+
+# Behavioral Analysis Agent Configuration
+behavioral:
+  model_name: "bert-base-uncased"
+  device: "cuda"                 # Force CUDA for RTX 5090
+  max_sequence_length: 512
+  batch_size: 32                 # Increased for RTX 5090 VRAM
+  use_bf16: true                 # Blackwell native precision
+
+  # DARVO detection keywords
+  darvo_keywords:
+    - "you always"
+    - "you never"
+    - "it's your fault"
+    - "i'm the victim"
+    - "you made me"
+    - "look what you did"
+    - "you're crazy"
+    - "that never happened"
+    - "you're imagining"
+
+  # Gaslighting indicators
+  gaslighting_phrases:
+    - "you're being paranoid"
+    - "that's not what happened"
+    - "you're too sensitive"
+    - "i never said that"
+    - "you're remembering it wrong"
+    - "you're overreacting"
+
+# Fusion Agent Configuration
+fusion:
+  strategy: "hybrid_late"        # hybrid_late, weighted_average, attention
+  alpha: 0.85
+  confidence_threshold: 0.7
+  require_consensus: false
+
+# Refinement Configuration (with thermal awareness)
+refinement:
+  max_cycles: 5
+  improvement_threshold: 0.03    # 3% target per iteration
+  rollback_on_degradation: true
+  ami_threshold: 0.85
+  # Mobile safeguards
+  pause_on_thermal_warning: true
+  thermal_pause_duration: 10     # Seconds to pause when hot
+
+# Storage (for future integration)
+storage:
+  event_store_url: "postgresql://localhost:5432/evidence_suite"
+  redis_url: "redis://localhost:6379"
+
+# Logging
+logging:
+  level: "INFO"
+  format: "{time} | {level} | {name} | {message}"
+  log_thermal_events: true
+  log_power_events: true
