@@ -15,8 +15,43 @@ from core.models import (
     ProcessingStage,
     EvidenceType
 )
-from core.config import OCRConfig, default_config
+from core.config import OCRConfig, default_config, hw_settings
 from agents.base import BaseAgent
+
+
+def _check_gpu_support() -> Tuple[bool, str]:
+    """
+    Check if GPU is available and supports EasyOCR (PyTorch).
+    Returns (use_gpu, reason).
+
+    Note: RTX 5090 Blackwell (sm_120) is NOT supported by PyTorch.
+    """
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return False, "CUDA not available"
+
+        # Check compute capability
+        device = torch.cuda.current_device()
+        cc = torch.cuda.get_device_capability(device)
+        cc_str = f"{cc[0]}.{cc[1]}"
+
+        # sm_120 (Blackwell) is not supported by PyTorch
+        if cc[0] >= 12:
+            return False, f"GPU compute capability {cc_str} (Blackwell) not supported by PyTorch"
+
+        # Test with simple operation
+        try:
+            test = torch.zeros(1).cuda()
+            del test
+            return True, f"GPU available (sm_{cc[0]}{cc[1]})"
+        except Exception as e:
+            return False, f"GPU test failed: {e}"
+
+    except ImportError:
+        return False, "PyTorch not installed"
+    except Exception as e:
+        return False, f"GPU check failed: {e}"
 
 
 class OCRAgent(BaseAgent):
@@ -64,11 +99,17 @@ class OCRAgent(BaseAgent):
         if "easyocr" in engines:
             try:
                 import easyocr
+
+                # Check GPU support (Blackwell sm_120 not supported by PyTorch)
+                use_gpu, gpu_reason = _check_gpu_support()
+                logger.info(f"EasyOCR GPU check: {gpu_reason}")
+
                 self._easyocr_reader = easyocr.Reader(
                     self.ocr_config.languages,
-                    gpu=False  # Set to True if GPU available
+                    gpu=use_gpu
                 )
-                logger.info("EasyOCR initialized")
+                device_str = "GPU" if use_gpu else "CPU"
+                logger.info(f"EasyOCR initialized on {device_str}")
             except Exception as e:
                 logger.warning(f"EasyOCR initialization failed: {e}")
 

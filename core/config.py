@@ -2,8 +2,10 @@
 Evidence Suite - Configuration
 System-wide configuration with sensible defaults.
 """
+import os
 from typing import Dict, List, Optional, Literal
 from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings
 
 
 class OCRConfig(BaseModel):
@@ -97,3 +99,90 @@ class Config(BaseModel):
 
 # Default configuration instance
 default_config = Config()
+
+
+class DatabaseSettings(BaseSettings):
+    """PostgreSQL database configuration."""
+    host: str = "localhost"
+    port: int = 5432
+    user: str = "postgres"
+    password: str = "postgres"
+    database: str = "evidence_suite"
+    pool_size: int = 10
+    max_overflow: int = 20
+
+    @property
+    def url(self) -> str:
+        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+
+    @property
+    def async_url(self) -> str:
+        return f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+
+    class Config:
+        env_prefix = "POSTGRES_"
+        env_file = ".env"
+        extra = "ignore"
+
+
+class RedisSettings(BaseSettings):
+    """Redis cache configuration."""
+    host: str = "localhost"
+    port: int = 6379
+    password: Optional[str] = None
+    db: int = 0
+    analysis_cache_ttl: int = 3600  # 1 hour
+    embedding_cache_ttl: int = 86400  # 24 hours
+
+    @property
+    def url(self) -> str:
+        if self.password:
+            return f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
+        return f"redis://{self.host}:{self.port}/{self.db}"
+
+    class Config:
+        env_prefix = "REDIS_"
+        env_file = ".env"
+        extra = "ignore"
+
+
+class APISettings(BaseSettings):
+    """FastAPI configuration."""
+    title: str = "Evidence Suite API"
+    version: str = "1.0.0"
+    description: str = "Forensic behavioral intelligence platform"
+    host: str = "0.0.0.0"
+    port: int = 8000
+    jwt_secret: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 30
+    cors_origins: List[str] = ["http://localhost:3000", "http://localhost:8080"]
+
+    class Config:
+        env_prefix = "API_"
+        env_file = ".env"
+        extra = "ignore"
+
+
+class HardwareSettings(BaseSettings):
+    """GPU and hardware configuration."""
+    thermal_warning: int = 82
+    thermal_hot: int = 85
+    thermal_critical: int = 90
+    vram_budget_mb: int = 20480
+    batch_size: int = 96
+    max_workers: int = 16
+    use_onnx: bool = True
+    use_tensorrt: bool = False
+
+    class Config:
+        env_prefix = "HW_"
+        env_file = ".env"
+        extra = "ignore"
+
+
+# Settings instances
+db_settings = DatabaseSettings()
+redis_settings = RedisSettings()
+api_settings = APISettings()
+hw_settings = HardwareSettings()

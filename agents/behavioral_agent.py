@@ -14,7 +14,7 @@ from core.models import (
     ProcessingStage,
     BehavioralIndicators
 )
-from core.config import BehavioralConfig, default_config
+from core.config import BehavioralConfig, default_config, hw_settings
 from agents.base import BaseAgent
 
 
@@ -46,6 +46,8 @@ class BehavioralAgent(BaseAgent):
         self._tokenizer = None
         self._model = None
         self._device = None
+        self._use_onnx = hw_settings.use_onnx
+        self._onnx_bert = None
 
     async def _setup(self) -> None:
         """Initialize NLP models."""
@@ -57,7 +59,25 @@ class BehavioralAgent(BaseAgent):
         except Exception as e:
             logger.warning(f"VADER initialization failed: {e}")
 
-        # Initialize BERT model
+        # Initialize BERT model - prefer ONNX for Blackwell GPU support
+        model_name = self.behavioral_config.model_name
+
+        if self._use_onnx:
+            # Try ONNX Runtime first (has native Blackwell sm_120 support)
+            try:
+                from core.inference import get_bert_inference
+                self._onnx_bert = get_bert_inference(
+                    model_name=model_name,
+                    use_gpu=True,
+                    use_fp16=hw_settings.use_tensorrt,
+                )
+                self._device = self._onnx_bert.get_device()
+                logger.info(f"ONNX BERT loaded: {model_name} on {self._device}")
+                return
+            except Exception as e:
+                logger.warning(f"ONNX BERT initialization failed: {e}")
+
+        # Fallback to PyTorch (may not work on RTX 5090 Blackwell)
         try:
             import torch
             from transformers import AutoTokenizer, AutoModel
@@ -69,15 +89,15 @@ class BehavioralAgent(BaseAgent):
                 self._device = self.behavioral_config.device
 
             # Load tokenizer and model
-            model_name = self.behavioral_config.model_name
             self._tokenizer = AutoTokenizer.from_pretrained(model_name)
             self._model = AutoModel.from_pretrained(model_name)
             self._model.to(self._device)
             self._model.eval()
 
-            logger.info(f"BERT model loaded: {model_name} on {self._device}")
+            logger.info(f"PyTorch BERT loaded: {model_name} on {self._device}")
         except Exception as e:
-            logger.warning(f"BERT initialization failed: {e}")
+            logger.warning(f"PyTorch BERT initialization failed: {e}")
+            logger.info("Behavioral analysis will run without BERT embeddings")
 
     async def _process_impl(self, packet: EvidencePacket) -> EvidencePacket:
         """
@@ -319,7 +339,18 @@ class BehavioralAgent(BaseAgent):
     async def _get_bert_embeddings(self, text: str) -> Optional[np.ndarray]:
         """
         Get BERT embeddings for the text.
+        Uses ONNX Runtime when available (Blackwell GPU support),
+        falls back to PyTorch otherwise.
         """
+        # Try ONNX first
+        if self._onnx_bert is not None:
+            try:
+                embeddings = self._onnx_bert.encode_single(text)
+                return embeddings.reshape(1, -1)
+            except Exception as e:
+                logger.warning(f"ONNX BERT embedding extraction failed: {e}")
+
+        # Fallback to PyTorch
         if self._model is None or self._tokenizer is None:
             return None
 
@@ -346,7 +377,7 @@ class BehavioralAgent(BaseAgent):
             return embeddings
 
         except Exception as e:
-            logger.warning(f"BERT embedding extraction failed: {e}")
+            logger.warning(f"PyTorch BERT embedding extraction failed: {e}")
             return None
 
     def _classify_behavior(
@@ -406,8 +437,8 @@ class BehavioralAgent(BaseAgent):
         # Base confidence from distance from ambiguity
         confidence = 0.5 + distance_from_middle * 0.3
 
-        # Boost if we have BERT embeddings
-        if self._model is not None:
+        # Boost if we have BERT embeddings (ONNX or PyTorch)
+        if self._onnx_bert is not None or self._model is not None:
             confidence = min(1.0, confidence + 0.1)
 
         return confidence

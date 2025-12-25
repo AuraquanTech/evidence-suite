@@ -1,0 +1,55 @@
+# Evidence Suite - CPU-only Docker Image
+# For systems without NVIDIA GPU
+
+FROM python:3.11-slim-bookworm
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    PYTHONPATH="/app"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    curl \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    libsndfile1 \
+    ffmpeg \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
+RUN pip install --upgrade pip wheel setuptools
+
+# Create app directory
+WORKDIR /app
+
+# Install Python dependencies
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Install CPU-specific packages
+RUN pip install --no-cache-dir onnxruntime
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /app/evidence_store /app/temp /app/logs
+
+# Set permissions
+RUN chmod -R 755 /app
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Default command
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
