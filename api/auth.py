@@ -1,11 +1,15 @@
 """
 Evidence Suite - JWT Authentication
+With rate limiting for security.
 """
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Dict
 from uuid import UUID
+from collections import defaultdict
+import time
+import asyncio
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -16,6 +20,57 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import api_settings
 from core.database import User
 from core.database.session import get_db
+
+
+# Rate limiting storage (in-memory, use Redis in production)
+_rate_limit_store: Dict[str, list] = defaultdict(list)
+_rate_limit_lock = asyncio.Lock()
+
+# Rate limit settings
+RATE_LIMIT_WINDOW = 60  # 1 minute window
+RATE_LIMIT_MAX_ATTEMPTS = 5  # Max 5 attempts per window
+LOCKOUT_DURATION = 300  # 5 minute lockout after max attempts
+
+
+async def check_rate_limit(identifier: str, request: Request) -> None:
+    """
+    Check rate limit for an identifier (IP or email).
+    Raises HTTPException if rate limit exceeded.
+    """
+    async with _rate_limit_lock:
+        now = time.time()
+        window_start = now - RATE_LIMIT_WINDOW
+
+        # Clean old entries
+        _rate_limit_store[identifier] = [
+            t for t in _rate_limit_store[identifier] if t > window_start
+        ]
+
+        # Check if locked out
+        attempts = len(_rate_limit_store[identifier])
+        if attempts >= RATE_LIMIT_MAX_ATTEMPTS:
+            oldest_attempt = min(_rate_limit_store[identifier])
+            lockout_end = oldest_attempt + LOCKOUT_DURATION
+            if now < lockout_end:
+                wait_time = int(lockout_end - now)
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Too many login attempts. Try again in {wait_time} seconds.",
+                    headers={"Retry-After": str(wait_time)},
+                )
+            # Lockout expired, clear attempts
+            _rate_limit_store[identifier] = []
+
+        # Record this attempt
+        _rate_limit_store[identifier].append(now)
+
+
+def get_client_ip(request: Request) -> str:
+    """Get client IP address from request."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 # Password hashing
@@ -168,10 +223,18 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/token", response_model=Token)
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
-    """Login and get access token."""
+    """Login and get access token. Rate limited to prevent brute force."""
+    # Rate limit by IP address
+    client_ip = get_client_ip(request)
+    await check_rate_limit(f"login_ip:{client_ip}", request)
+
+    # Also rate limit by email to prevent credential stuffing
+    await check_rate_limit(f"login_email:{form_data.username}", request)
+
     user = await authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -197,10 +260,15 @@ async def login(
 
 @router.post("/register", response_model=UserResponse, status_code=201)
 async def register(
+    request: Request,
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
-    """Register a new user."""
+    """Register a new user. Rate limited to prevent spam."""
+    # Rate limit registration by IP
+    client_ip = get_client_ip(request)
+    await check_rate_limit(f"register_ip:{client_ip}", request)
+
     # Check if user exists
     existing = await get_user_by_email(db, user_data.email)
     if existing:

@@ -1,0 +1,3 @@
+# Keep this directory for benchmark reports
+# baseline.json should be committed
+# benchmark_*.json files are generated and should be ignored
