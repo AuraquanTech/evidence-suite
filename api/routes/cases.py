@@ -1,5 +1,6 @@
 """
 Evidence Suite - Case Routes
+Optimized with repository pattern and eager loading.
 """
 from datetime import datetime
 from typing import Optional
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import Case, CaseStatus as DBCaseStatus
 from core.database.session import get_db
+from core.database.repository import CaseRepository, get_case_repository
 from api.schemas.cases import (
     CaseCreate,
     CaseUpdate,
@@ -20,6 +22,11 @@ from api.schemas.cases import (
 )
 
 router = APIRouter(prefix="/cases", tags=["Cases"])
+
+
+# Dependency to get case repository
+async def get_repo(db: AsyncSession = Depends(get_db)) -> CaseRepository:
+    return get_case_repository(db)
 
 
 @router.post("/", response_model=CaseResponse, status_code=201)
@@ -68,47 +75,40 @@ async def list_cases(
     page_size: int = Query(default=20, ge=1, le=100),
     status: Optional[CaseStatus] = None,
     search: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    repo: CaseRepository = Depends(get_repo)
 ):
-    """List cases with pagination and filtering."""
-    query = select(Case)
+    """List cases with pagination and filtering.
 
-    if status:
-        query = query.where(Case.status == DBCaseStatus(status.value))
+    Optimized: Uses single query with JOIN for evidence counts,
+    avoiding N+1 query problem.
+    """
+    # Convert status enum
+    db_status = DBCaseStatus(status.value) if status else None
 
-    if search:
-        query = query.where(
-            Case.title.ilike(f"%{search}%") |
-            Case.case_number.ilike(f"%{search}%")
-        )
-
-    # Get total count
-    count_query = select(func.count()).select_from(query.subquery())
-    total = (await db.execute(count_query)).scalar()
-
-    # Apply pagination
-    query = query.offset((page - 1) * page_size).limit(page_size)
-    query = query.order_by(Case.created_at.desc())
-
-    result = await db.execute(query)
-    cases = result.scalars().all()
+    # Use optimized repository method - single query for cases + counts
+    cases_with_counts, total = await repo.list_with_evidence_counts(
+        page=page,
+        page_size=page_size,
+        status=db_status,
+        search=search
+    )
 
     items = [
         CaseResponse(
-            id=c.id,
-            case_number=c.case_number,
-            title=c.title,
-            description=c.description,
-            status=CaseStatus(c.status.value),
-            client_name=c.client_name,
-            attorney_name=c.attorney_name,
-            jurisdiction=c.jurisdiction,
-            created_at=c.created_at,
-            updated_at=c.updated_at,
-            closed_at=c.closed_at,
-            evidence_count=len(c.evidence_records) if c.evidence_records else 0,
+            id=case.id,
+            case_number=case.case_number,
+            title=case.title,
+            description=case.description,
+            status=CaseStatus(case.status.value),
+            client_name=case.client_name,
+            attorney_name=case.attorney_name,
+            jurisdiction=case.jurisdiction,
+            created_at=case.created_at,
+            updated_at=case.updated_at,
+            closed_at=case.closed_at,
+            evidence_count=evidence_count,
         )
-        for c in cases
+        for case, evidence_count in cases_with_counts
     ]
 
     return CaseListResponse(
@@ -116,21 +116,25 @@ async def list_cases(
         total=total,
         page=page,
         page_size=page_size,
-        pages=(total + page_size - 1) // page_size,
+        pages=(total + page_size - 1) // page_size if total > 0 else 0,
     )
 
 
 @router.get("/{case_id}", response_model=CaseResponse)
 async def get_case(
     case_id: UUID,
-    db: AsyncSession = Depends(get_db)
+    repo: CaseRepository = Depends(get_repo)
 ):
-    """Get a case by ID."""
-    result = await db.execute(select(Case).where(Case.id == case_id))
-    case = result.scalar_one_or_none()
+    """Get a case by ID.
 
-    if not case:
+    Optimized: Uses single query with JOIN for evidence count.
+    """
+    result = await repo.get_with_evidence_count(case_id)
+
+    if not result:
         raise HTTPException(status_code=404, detail="Case not found")
+
+    case, evidence_count = result
 
     return CaseResponse(
         id=case.id,
@@ -144,7 +148,7 @@ async def get_case(
         created_at=case.created_at,
         updated_at=case.updated_at,
         closed_at=case.closed_at,
-        evidence_count=len(case.evidence_records) if case.evidence_records else 0,
+        evidence_count=evidence_count,
     )
 
 

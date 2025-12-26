@@ -115,18 +115,79 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {
+    """Comprehensive health check endpoint with database status."""
+    from core.database.monitoring import get_monitor
+
+    health = {
         "status": "healthy",
-        "database": db_settings.host,
+        "database": {
+            "host": db_settings.host,
+            "status": "unknown"
+        },
+        "cache": {
+            "status": "unknown"
+        }
+    }
+
+    # Check database
+    try:
+        monitor = get_monitor()
+        db_health = monitor.get_health()
+        health["database"]["status"] = db_health.get("status", "unknown")
+        health["database"]["pool"] = db_health.get("pool", {})
+    except Exception as e:
+        health["database"]["status"] = "error"
+        health["database"]["error"] = str(e)
+
+    # Check cache
+    try:
+        from core.cache import get_cache
+        cache = await get_cache()
+        health["cache"]["status"] = "connected" if cache.is_connected else "disconnected"
+    except Exception as e:
+        health["cache"]["status"] = "error"
+        health["cache"]["error"] = str(e)
+
+    # Overall status
+    if health["database"]["status"] == "error":
+        health["status"] = "degraded"
+
+    return health
+
+
+@app.get("/health/db")
+async def database_health():
+    """Detailed database health metrics."""
+    from core.database.monitoring import get_monitor
+
+    monitor = get_monitor()
+    return {
+        "health": monitor.get_health(),
+        "query_stats": monitor.get_query_stats(),
+        "slow_queries": monitor.get_slow_queries(limit=5),
+        "recent_errors": monitor.get_errors(limit=5)
     }
 
 
 @app.get("/metrics")
 async def get_metrics():
-    """Get application metrics."""
+    """Get application metrics including database stats."""
+    from core.database.monitoring import get_monitor
+
     logger = get_logger()
-    return logger.get_metrics()
+    log_metrics = logger.get_metrics()
+
+    # Add database metrics
+    try:
+        monitor = get_monitor()
+        log_metrics["database"] = {
+            "pool": monitor.get_pool_stats(),
+            "queries": monitor.get_query_stats()
+        }
+    except Exception:
+        log_metrics["database"] = {"status": "unavailable"}
+
+    return log_metrics
 
 
 @app.exception_handler(Exception)

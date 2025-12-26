@@ -255,6 +255,147 @@ class CacheManager:
             logger.warning(f"Rate limit check failed: {e}")
             return True
 
+    # ----- Query Result Caching -----
+
+    async def get_query_result(self, query_key: str) -> Optional[Any]:
+        """Get cached query result."""
+        if not self._is_connected:
+            return None
+
+        try:
+            key = f"query:{query_key}"
+            data = await self._client.get(key)
+            if data:
+                return pickle.loads(data)
+        except Exception as e:
+            logger.warning(f"Query cache get failed: {e}")
+        return None
+
+    async def set_query_result(
+        self,
+        query_key: str,
+        result: Any,
+        ttl: int = 300  # 5 minutes default
+    ) -> bool:
+        """Cache query result."""
+        if not self._is_connected:
+            return False
+
+        try:
+            key = f"query:{query_key}"
+            data = pickle.dumps(result)
+            await self._client.setex(key, ttl, data)
+            return True
+        except Exception as e:
+            logger.warning(f"Query cache set failed: {e}")
+            return False
+
+    async def invalidate_query_cache(self, pattern: str = "*") -> int:
+        """Invalidate query cache entries matching pattern."""
+        if not self._is_connected:
+            return 0
+
+        try:
+            keys = await self._client.keys(f"query:{pattern}")
+            if keys:
+                return await self._client.delete(*keys)
+            return 0
+        except Exception as e:
+            logger.warning(f"Query cache invalidation failed: {e}")
+            return 0
+
+    @staticmethod
+    def make_query_key(*args, **kwargs) -> str:
+        """Create cache key from query parameters."""
+        key_parts = [str(a) for a in args]
+        key_parts.extend(f"{k}={v}" for k, v in sorted(kwargs.items()))
+        key_str = ":".join(key_parts)
+        return hashlib.sha256(key_str.encode()).hexdigest()[:32]
+
+    # ----- Batch Operations -----
+
+    async def mget(self, keys: list[str], prefix: str = "") -> Dict[str, Any]:
+        """Get multiple values at once."""
+        if not self._is_connected or not keys:
+            return {}
+
+        try:
+            full_keys = [f"{prefix}{k}" if prefix else k for k in keys]
+            values = await self._client.mget(full_keys)
+            result = {}
+            for key, value in zip(keys, values):
+                if value:
+                    try:
+                        result[key] = pickle.loads(value)
+                    except Exception:
+                        result[key] = value.decode() if isinstance(value, bytes) else value
+            return result
+        except Exception as e:
+            logger.warning(f"Batch get failed: {e}")
+            return {}
+
+    async def mset(
+        self,
+        items: Dict[str, Any],
+        prefix: str = "",
+        ttl: Optional[int] = None
+    ) -> bool:
+        """Set multiple values at once."""
+        if not self._is_connected or not items:
+            return False
+
+        try:
+            # Use pipeline for atomic operation
+            pipe = self._client.pipeline()
+
+            for key, value in items.items():
+                full_key = f"{prefix}{key}" if prefix else key
+                data = pickle.dumps(value)
+                if ttl:
+                    pipe.setex(full_key, ttl, data)
+                else:
+                    pipe.set(full_key, data)
+
+            await pipe.execute()
+            return True
+        except Exception as e:
+            logger.warning(f"Batch set failed: {e}")
+            return False
+
+    async def mdelete(self, keys: list[str], prefix: str = "") -> int:
+        """Delete multiple keys at once."""
+        if not self._is_connected or not keys:
+            return 0
+
+        try:
+            full_keys = [f"{prefix}{k}" if prefix else k for k in keys]
+            return await self._client.delete(*full_keys)
+        except Exception as e:
+            logger.warning(f"Batch delete failed: {e}")
+            return 0
+
+    # ----- Cache Info -----
+
+    async def get_cache_info(self) -> Dict[str, Any]:
+        """Get cache statistics and info."""
+        if not self._is_connected:
+            return {"status": "disconnected"}
+
+        try:
+            info = await self._client.info("memory")
+            keyspace = await self._client.info("keyspace")
+
+            return {
+                "status": "connected",
+                "used_memory": info.get("used_memory_human", "unknown"),
+                "used_memory_peak": info.get("used_memory_peak_human", "unknown"),
+                "connected_clients": (await self._client.info("clients")).get("connected_clients", 0),
+                "keyspace": keyspace
+            }
+        except Exception as e:
+            logger.warning(f"Cache info failed: {e}")
+            return {"status": "error", "error": str(e)}
+
     # ----- Statistics -----
 
     async def increment_stat(self, stat_name: str, value: int = 1) -> bool:
