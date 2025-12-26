@@ -2,20 +2,21 @@
 Evidence Suite - Comprehensive Benchmark System
 Collects detailed performance metrics and generates benchmark reports.
 """
+
 import asyncio
+import json
 import os
+import platform
+import statistics
 import sys
 import time
-import json
-import statistics
-import platform
-import psutil
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Callable, Tuple
-from dataclasses import dataclass, field, asdict
-from contextlib import contextmanager
-from functools import wraps
+from typing import Any
+
+import psutil
+
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -24,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 @dataclass
 class BenchmarkMetric:
     """Single benchmark metric."""
+
     name: str
     value: float
     unit: str
@@ -34,6 +36,7 @@ class BenchmarkMetric:
 @dataclass
 class BenchmarkRun:
     """Results from a single benchmark run."""
+
     name: str
     iterations: int
     total_time_s: float
@@ -49,12 +52,13 @@ class BenchmarkRun:
     memory_after_mb: float
     memory_delta_mb: float
     success_rate: float
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 @dataclass
 class SystemInfo:
     """System information for benchmark context."""
+
     platform: str
     python_version: str
     cpu_model: str
@@ -62,23 +66,24 @@ class SystemInfo:
     cpu_threads: int
     ram_total_gb: float
     ram_available_gb: float
-    gpu_name: Optional[str]
-    gpu_memory_gb: Optional[float]
-    cuda_version: Optional[str]
+    gpu_name: str | None
+    gpu_memory_gb: float | None
+    cuda_version: str | None
 
 
 @dataclass
 class BenchmarkReport:
     """Complete benchmark report."""
+
     suite_name: str
     version: str
     timestamp: str
     system_info: SystemInfo
-    benchmarks: List[BenchmarkRun]
-    metrics: Dict[str, float]
-    comparison: Optional[Dict[str, Any]] = None
+    benchmarks: list[BenchmarkRun]
+    metrics: dict[str, float]
+    comparison: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "suite_name": self.suite_name,
             "version": self.version,
@@ -96,44 +101,50 @@ class BenchmarkReport:
 
     def print_summary(self):
         """Print formatted summary."""
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"BENCHMARK REPORT: {self.suite_name}")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"Version: {self.version}")
         print(f"Timestamp: {self.timestamp}")
-        print(f"\nSystem Info:")
+        print("\nSystem Info:")
         print(f"  Platform: {self.system_info.platform}")
         print(f"  Python: {self.system_info.python_version}")
         print(f"  CPU: {self.system_info.cpu_model}")
         print(f"  Cores/Threads: {self.system_info.cpu_cores}/{self.system_info.cpu_threads}")
-        print(f"  RAM: {self.system_info.ram_total_gb:.1f}GB total, {self.system_info.ram_available_gb:.1f}GB available")
+        print(
+            f"  RAM: {self.system_info.ram_total_gb:.1f}GB total, {self.system_info.ram_available_gb:.1f}GB available"
+        )
         if self.system_info.gpu_name:
             print(f"  GPU: {self.system_info.gpu_name} ({self.system_info.gpu_memory_gb:.1f}GB)")
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("BENCHMARK RESULTS")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         for bench in self.benchmarks:
             print(f"\n{bench.name}:")
             print(f"  Iterations: {bench.iterations}")
             print(f"  Total Time: {bench.total_time_s:.2f}s")
-            print(f"  Avg: {bench.avg_time_ms:.2f}ms | Min: {bench.min_time_ms:.2f}ms | Max: {bench.max_time_ms:.2f}ms")
-            print(f"  P50: {bench.p50_ms:.2f}ms | P95: {bench.p95_ms:.2f}ms | P99: {bench.p99_ms:.2f}ms")
+            print(
+                f"  Avg: {bench.avg_time_ms:.2f}ms | Min: {bench.min_time_ms:.2f}ms | Max: {bench.max_time_ms:.2f}ms"
+            )
+            print(
+                f"  P50: {bench.p50_ms:.2f}ms | P95: {bench.p95_ms:.2f}ms | P99: {bench.p99_ms:.2f}ms"
+            )
             print(f"  Throughput: {bench.ops_per_sec:.2f} ops/sec")
             print(f"  Memory Delta: {bench.memory_delta_mb:+.2f}MB")
-            print(f"  Success Rate: {bench.success_rate*100:.1f}%")
+            print(f"  Success Rate: {bench.success_rate * 100:.1f}%")
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("AGGREGATE METRICS")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         for key, value in self.metrics.items():
             print(f"  {key}: {value}")
 
         if self.comparison:
-            print(f"\n{'='*70}")
+            print(f"\n{'=' * 70}")
             print("COMPARISON WITH BASELINE")
-            print(f"{'='*70}")
+            print(f"{'=' * 70}")
             for key, value in self.comparison.items():
                 print(f"  {key}: {value}")
 
@@ -144,7 +155,7 @@ class BenchmarkRunner:
     def __init__(self, iterations: int = 100, warmup: int = 5):
         self.iterations = iterations
         self.warmup = warmup
-        self.benchmarks: List[BenchmarkRun] = []
+        self.benchmarks: list[BenchmarkRun] = []
 
     def get_system_info(self) -> SystemInfo:
         """Collect system information."""
@@ -155,11 +166,12 @@ class BenchmarkRunner:
         # Try to get GPU info
         try:
             import pynvml
+
             pynvml.nvmlInit()
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             gpu_name = pynvml.nvmlDeviceGetName(handle)
             if isinstance(gpu_name, bytes):
-                gpu_name = gpu_name.decode('utf-8')
+                gpu_name = gpu_name.decode("utf-8")
             mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
             gpu_memory = mem_info.total / (1024**3)
             cuda_version = pynvml.nvmlSystemGetCudaDriverVersion_v2()
@@ -173,11 +185,11 @@ class BenchmarkRunner:
         if not cpu_model:
             try:
                 import subprocess
+
                 result = subprocess.run(
-                    ["wmic", "cpu", "get", "name"],
-                    capture_output=True, text=True
+                    ["wmic", "cpu", "get", "name"], check=False, capture_output=True, text=True
                 )
-                lines = result.stdout.strip().split('\n')
+                lines = result.stdout.strip().split("\n")
                 if len(lines) > 1:
                     cpu_model = lines[1].strip()
             except Exception:
@@ -207,6 +219,7 @@ class BenchmarkRunner:
 
         try:
             from pipeline import EvidencePipeline
+
             pipeline = EvidencePipeline()
             await pipeline.initialize()
         except Exception as e:
@@ -226,7 +239,7 @@ class BenchmarkRunner:
                 memory_after_mb=0,
                 memory_delta_mb=0,
                 success_rate=0,
-                errors=[str(e)]
+                errors=[str(e)],
             )
 
         test_texts = [
@@ -287,6 +300,7 @@ class BenchmarkRunner:
 
         try:
             from agents.behavioral_agent import BehavioralAgent
+
             agent = BehavioralAgent()
             await agent.initialize()
         except Exception as e:
@@ -306,7 +320,7 @@ class BenchmarkRunner:
                 memory_after_mb=0,
                 memory_delta_mb=0,
                 success_rate=0,
-                errors=[str(e)]
+                errors=[str(e)],
             )
 
         test_text = "You're always wrong and everything is your fault! I'm the victim here!"
@@ -360,6 +374,7 @@ class BenchmarkRunner:
 
         try:
             from agents.fusion_agent import FusionAgent
+
             agent = FusionAgent()
             await agent.initialize()
         except Exception as e:
@@ -379,7 +394,7 @@ class BenchmarkRunner:
                 memory_after_mb=0,
                 memory_delta_mb=0,
                 success_rate=0,
-                errors=[str(e)]
+                errors=[str(e)],
             )
 
         # Create mock input
@@ -436,10 +451,8 @@ class BenchmarkRunner:
         )
 
     def compare_with_baseline(
-        self,
-        current: Dict[str, float],
-        baseline_path: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        self, current: dict[str, float], baseline_path: str | None = None
+    ) -> dict[str, Any] | None:
         """Compare current metrics with baseline."""
         if not baseline_path or not Path(baseline_path).exists():
             return None
@@ -465,17 +478,14 @@ class BenchmarkRunner:
 
         return comparison if comparison else None
 
-    async def run_all_benchmarks(
-        self,
-        baseline_path: Optional[str] = None
-    ) -> BenchmarkReport:
+    async def run_all_benchmarks(self, baseline_path: str | None = None) -> BenchmarkReport:
         """Run all benchmarks and generate report."""
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("EVIDENCE SUITE BENCHMARK")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"Iterations: {self.iterations}")
         print(f"Warmup: {self.warmup}")
-        print(f"{'='*70}\n")
+        print(f"{'=' * 70}\n")
 
         system_info = self.get_system_info()
         print("Collecting system info...")
@@ -505,9 +515,13 @@ class BenchmarkRunner:
             "total_benchmarks": len(self.benchmarks),
             "avg_latency_ms": round(statistics.mean(all_times), 2) if all_times else 0,
             "total_ops": sum(b.iterations for b in self.benchmarks),
-            "avg_throughput_ops_sec": round(statistics.mean([b.ops_per_sec for b in self.benchmarks if b.ops_per_sec > 0]), 2),
+            "avg_throughput_ops_sec": round(
+                statistics.mean([b.ops_per_sec for b in self.benchmarks if b.ops_per_sec > 0]), 2
+            ),
             "total_memory_delta_mb": round(sum(b.memory_delta_mb for b in self.benchmarks), 2),
-            "avg_success_rate": round(statistics.mean([b.success_rate for b in self.benchmarks]) * 100, 2),
+            "avg_success_rate": round(
+                statistics.mean([b.success_rate for b in self.benchmarks]) * 100, 2
+            ),
         }
 
         # Compare with baseline
@@ -516,6 +530,7 @@ class BenchmarkRunner:
         # Get version
         try:
             from core.config import api_settings
+
             version = api_settings.version
         except Exception:
             version = "unknown"
@@ -536,9 +551,9 @@ class BenchmarkRunner:
 def run_benchmarks(
     iterations: int = 100,
     warmup: int = 5,
-    output_file: Optional[str] = None,
-    baseline_file: Optional[str] = None,
-) -> Tuple[bool, BenchmarkReport]:
+    output_file: str | None = None,
+    baseline_file: str | None = None,
+) -> tuple[bool, BenchmarkReport]:
     """Run benchmarks and optionally save report."""
     runner = BenchmarkRunner(iterations=iterations, warmup=warmup)
     report = asyncio.run(runner.run_all_benchmarks(baseline_path=baseline_file))
@@ -558,14 +573,16 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Evidence Suite Benchmarks")
-    parser.add_argument("-i", "--iterations", type=int, default=100,
-                        help="Number of iterations per benchmark")
-    parser.add_argument("-w", "--warmup", type=int, default=5,
-                        help="Number of warmup iterations")
-    parser.add_argument("-o", "--output", type=str, default=None,
-                        help="Output file for JSON report")
-    parser.add_argument("-b", "--baseline", type=str, default=None,
-                        help="Baseline file for comparison")
+    parser.add_argument(
+        "-i", "--iterations", type=int, default=100, help="Number of iterations per benchmark"
+    )
+    parser.add_argument("-w", "--warmup", type=int, default=5, help="Number of warmup iterations")
+    parser.add_argument(
+        "-o", "--output", type=str, default=None, help="Output file for JSON report"
+    )
+    parser.add_argument(
+        "-b", "--baseline", type=str, default=None, help="Baseline file for comparison"
+    )
 
     args = parser.parse_args()
 

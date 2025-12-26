@@ -1,26 +1,22 @@
-"""
-Evidence Suite - Behavioral Analysis Agent
+"""Evidence Suite - Behavioral Analysis Agent
 BERT-based behavioral pattern detection for forensic analysis.
 """
-from __future__ import annotations
-import re
-from typing import Any, Dict, List, Optional, Tuple
-from loguru import logger
-import numpy as np
 
-from core.models import (
-    EvidencePacket,
-    AnalysisResult,
-    ProcessingStage,
-    BehavioralIndicators
-)
-from core.config import BehavioralConfig, default_config, hw_settings
+from __future__ import annotations
+
+import re
+from typing import Any
+
+import numpy as np
+from loguru import logger
+
 from agents.base import BaseAgent
+from core.config import BehavioralConfig, default_config, hw_settings
+from core.models import AnalysisResult, BehavioralIndicators, EvidencePacket, ProcessingStage
 
 
 class BehavioralAgent(BaseAgent):
-    """
-    Intelligence layer agent for behavioral pattern analysis.
+    """Intelligence layer agent for behavioral pattern analysis.
 
     Features:
     - VADER sentiment analysis
@@ -31,15 +27,11 @@ class BehavioralAgent(BaseAgent):
     - Linguistic marker analysis
     """
 
-    def __init__(
-        self,
-        agent_id: Optional[str] = None,
-        config: Optional[BehavioralConfig] = None
-    ):
+    def __init__(self, agent_id: str | None = None, config: BehavioralConfig | None = None):
         super().__init__(
             agent_id=agent_id,
             agent_type="behavioral",
-            config=(config or default_config.behavioral).model_dump()
+            config=(config or default_config.behavioral).model_dump(),
         )
         self.behavioral_config = config or default_config.behavioral
         self._vader = None
@@ -54,6 +46,7 @@ class BehavioralAgent(BaseAgent):
         # Initialize VADER sentiment analyzer
         try:
             from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
             self._vader = SentimentIntensityAnalyzer()
             logger.info("VADER sentiment analyzer initialized")
         except Exception as e:
@@ -66,6 +59,7 @@ class BehavioralAgent(BaseAgent):
             # Try ONNX Runtime first (has native Blackwell sm_120 support)
             try:
                 from core.inference import get_bert_inference
+
                 self._onnx_bert = get_bert_inference(
                     model_name=model_name,
                     use_gpu=True,
@@ -80,7 +74,7 @@ class BehavioralAgent(BaseAgent):
         # Fallback to PyTorch (may not work on RTX 5090 Blackwell)
         try:
             import torch
-            from transformers import AutoTokenizer, AutoModel
+            from transformers import AutoModel, AutoTokenizer
 
             # Determine device
             if self.behavioral_config.device == "auto":
@@ -100,9 +94,7 @@ class BehavioralAgent(BaseAgent):
             logger.info("Behavioral analysis will run without BERT embeddings")
 
     async def _process_impl(self, packet: EvidencePacket) -> EvidencePacket:
-        """
-        Analyze text for behavioral patterns.
-        """
+        """Analyze text for behavioral patterns."""
         text = packet.get_text_content()
         if not text or len(text.strip()) < 10:
             raise ValueError("Insufficient text content for behavioral analysis")
@@ -123,21 +115,18 @@ class BehavioralAgent(BaseAgent):
             sentiment_positive=sentiment["pos"],
             sentiment_negative=sentiment["neg"],
             sentiment_neutral=sentiment["neu"],
-
             # Pattern scores
             darvo_score=darvo["score"],
             gaslighting_score=gaslighting["score"],
             manipulation_score=manipulation,
             deception_indicators=self._detect_deception_indicators(text),
-
             # Linguistic markers
             hedging_frequency=linguistic["hedging"],
             certainty_markers=linguistic["certainty"],
             emotional_intensity=linguistic["emotional_intensity"],
-
             # Classification
             primary_behavior_class=classification["primary_class"],
-            behavior_probabilities=classification["probabilities"]
+            behavior_probabilities=classification["probabilities"],
         )
 
         # Calculate overall confidence
@@ -155,20 +144,18 @@ class BehavioralAgent(BaseAgent):
                 "linguistic_markers": linguistic,
                 "behavior_classification": classification,
                 "text_length": len(text),
-                "sentence_count": len(self._split_sentences(text))
+                "sentence_count": len(self._split_sentences(text)),
             },
-            raw_output={
-                "embeddings_shape": embeddings.shape if embeddings is not None else None
-            }
+            raw_output={"embeddings_shape": embeddings.shape if embeddings is not None else None},
         )
 
         return packet.with_updates(
             behavioral_indicators=indicators,
             stage=ProcessingStage.BEHAVIORAL_ANALYZED,
-            analysis_results=packet.analysis_results + [analysis]
+            analysis_results=packet.analysis_results + [analysis],
         )
 
-    def _analyze_sentiment(self, text: str) -> Dict[str, float]:
+    def _analyze_sentiment(self, text: str) -> dict[str, float]:
         """Run VADER sentiment analysis."""
         if self._vader is None:
             return {"compound": 0.0, "pos": 0.0, "neg": 0.0, "neu": 1.0}
@@ -178,12 +165,11 @@ class BehavioralAgent(BaseAgent):
             "compound": scores["compound"],
             "pos": scores["pos"],
             "neg": scores["neg"],
-            "neu": scores["neu"]
+            "neu": scores["neu"],
         }
 
-    def _detect_darvo(self, text: str) -> Dict[str, Any]:
-        """
-        Detect DARVO patterns (Deny, Attack, Reverse Victim/Offender).
+    def _detect_darvo(self, text: str) -> dict[str, Any]:
+        """Detect DARVO patterns (Deny, Attack, Reverse Victim/Offender).
 
         Returns score (0-1) and matched phrases.
         """
@@ -201,16 +187,10 @@ class BehavioralAgent(BaseAgent):
         # Normalize to 0-1 scale (cap at 5% density = 1.0)
         score = min(1.0, density / 5.0)
 
-        return {
-            "score": score,
-            "matches": matches,
-            "match_count": len(matches)
-        }
+        return {"score": score, "matches": matches, "match_count": len(matches)}
 
-    def _detect_gaslighting(self, text: str) -> Dict[str, Any]:
-        """
-        Detect gaslighting language patterns.
-        """
+    def _detect_gaslighting(self, text: str) -> dict[str, Any]:
+        """Detect gaslighting language patterns."""
         text_lower = text.lower()
         matches = []
 
@@ -224,7 +204,7 @@ class BehavioralAgent(BaseAgent):
             r"(that|it) (never|didn't) happen",
             r"you('re| are) (imagining|making) (things|it) up",
             r"no one (else |ever )?(thinks|believes|said)",
-            r"you (always|never) (do|say|remember)"
+            r"you (always|never) (do|say|remember)",
         ]
 
         for pattern in patterns:
@@ -235,32 +215,25 @@ class BehavioralAgent(BaseAgent):
         unique_matches = list(set(matches))
         score = min(1.0, len(unique_matches) / 5.0)
 
-        return {
-            "score": score,
-            "matches": unique_matches,
-            "match_count": len(unique_matches)
-        }
+        return {"score": score, "matches": unique_matches, "match_count": len(unique_matches)}
 
-    def _calculate_manipulation_score(
-        self,
-        text: str,
-        darvo: Dict,
-        gaslighting: Dict
-    ) -> float:
-        """
-        Calculate overall manipulation score combining multiple signals.
-        """
+    def _calculate_manipulation_score(self, text: str, darvo: dict, gaslighting: dict) -> float:
+        """Calculate overall manipulation score combining multiple signals."""
         # Base from DARVO and gaslighting
-        base_score = (darvo["score"] * 0.4 + gaslighting["score"] * 0.4)
+        base_score = darvo["score"] * 0.4 + gaslighting["score"] * 0.4
 
         # Add other manipulation indicators
         text_lower = text.lower()
 
         manipulation_phrases = [
-            "if you loved me", "after all i've done",
-            "you owe me", "you made me do",
-            "no one else would", "you're lucky i",
-            "don't tell anyone", "this is your fault"
+            "if you loved me",
+            "after all i've done",
+            "you owe me",
+            "you made me do",
+            "no one else would",
+            "you're lucky i",
+            "don't tell anyone",
+            "this is your fault",
         ]
 
         matches = sum(1 for p in manipulation_phrases if p in text_lower)
@@ -269,8 +242,7 @@ class BehavioralAgent(BaseAgent):
         return min(1.0, base_score + phrase_score)
 
     def _detect_deception_indicators(self, text: str) -> float:
-        """
-        Detect linguistic indicators often associated with deception.
+        """Detect linguistic indicators often associated with deception.
 
         Note: These are probabilistic indicators, not definitive proof.
         """
@@ -278,18 +250,37 @@ class BehavioralAgent(BaseAgent):
         indicators = 0
 
         # Excessive qualifiers
-        qualifiers = ["honestly", "truthfully", "to be honest", "believe me",
-                      "i swear", "trust me", "frankly"]
+        qualifiers = [
+            "honestly",
+            "truthfully",
+            "to be honest",
+            "believe me",
+            "i swear",
+            "trust me",
+            "frankly",
+        ]
         indicators += sum(1 for q in qualifiers if q in text_lower)
 
         # Distancing language
-        distancing = ["that person", "that thing", "those people",
-                      "one might", "someone", "they say"]
+        distancing = [
+            "that person",
+            "that thing",
+            "those people",
+            "one might",
+            "someone",
+            "they say",
+        ]
         indicators += sum(0.5 for d in distancing if d in text_lower)
 
         # Lack of contractions (more formal = potential deception)
-        formal_patterns = [" did not ", " do not ", " was not ", " is not ",
-                          " would not ", " could not "]
+        formal_patterns = [
+            " did not ",
+            " do not ",
+            " was not ",
+            " is not ",
+            " would not ",
+            " could not ",
+        ]
         indicators += sum(0.3 for f in formal_patterns if f in text_lower)
 
         # Normalize
@@ -298,23 +289,40 @@ class BehavioralAgent(BaseAgent):
 
         return min(1.0, normalized)
 
-    def _analyze_linguistic_markers(self, text: str) -> Dict[str, float]:
-        """
-        Analyze linguistic patterns in the text.
-        """
+    def _analyze_linguistic_markers(self, text: str) -> dict[str, float]:
+        """Analyze linguistic patterns in the text."""
         text_lower = text.lower()
         words = text.split()
         word_count = len(words)
 
         # Hedging language
-        hedges = ["maybe", "perhaps", "possibly", "might", "could be",
-                  "sort of", "kind of", "i think", "i guess", "probably"]
+        hedges = [
+            "maybe",
+            "perhaps",
+            "possibly",
+            "might",
+            "could be",
+            "sort of",
+            "kind of",
+            "i think",
+            "i guess",
+            "probably",
+        ]
         hedge_count = sum(1 for h in hedges if h in text_lower)
         hedging = hedge_count / max(word_count / 20, 1)
 
         # Certainty markers
-        certainty_words = ["definitely", "certainly", "absolutely", "always",
-                          "never", "must", "have to", "obviously", "clearly"]
+        certainty_words = [
+            "definitely",
+            "certainly",
+            "absolutely",
+            "always",
+            "never",
+            "must",
+            "have to",
+            "obviously",
+            "clearly",
+        ]
         certainty_count = sum(1 for c in certainty_words if c in text_lower)
         certainty = certainty_count / max(word_count / 20, 1)
 
@@ -322,23 +330,31 @@ class BehavioralAgent(BaseAgent):
         exclamations = text.count("!")
         caps_words = sum(1 for w in words if w.isupper() and len(w) > 2)
 
-        emotional_words = ["hate", "love", "furious", "terrified", "ecstatic",
-                          "devastated", "amazing", "horrible", "disgusting"]
+        emotional_words = [
+            "hate",
+            "love",
+            "furious",
+            "terrified",
+            "ecstatic",
+            "devastated",
+            "amazing",
+            "horrible",
+            "disgusting",
+        ]
         emotion_count = sum(1 for e in emotional_words if e in text_lower)
 
-        emotional_intensity = (
-            exclamations * 0.1 + caps_words * 0.1 + emotion_count * 0.2
-        ) / max(word_count / 50, 1)
+        emotional_intensity = (exclamations * 0.1 + caps_words * 0.1 + emotion_count * 0.2) / max(
+            word_count / 50, 1
+        )
 
         return {
             "hedging": min(1.0, hedging),
             "certainty": min(1.0, certainty),
-            "emotional_intensity": min(1.0, emotional_intensity)
+            "emotional_intensity": min(1.0, emotional_intensity),
         }
 
-    async def _get_bert_embeddings(self, text: str) -> Optional[np.ndarray]:
-        """
-        Get BERT embeddings for the text.
+    async def _get_bert_embeddings(self, text: str) -> np.ndarray | None:
+        """Get BERT embeddings for the text.
         Uses ONNX Runtime when available (Blackwell GPU support),
         falls back to PyTorch otherwise.
         """
@@ -363,7 +379,7 @@ class BehavioralAgent(BaseAgent):
                 max_length=self.behavioral_config.max_sequence_length,
                 truncation=True,
                 padding=True,
-                return_tensors="pt"
+                return_tensors="pt",
             )
             inputs = {k: v.to(self._device) for k, v in inputs.items()}
 
@@ -381,13 +397,9 @@ class BehavioralAgent(BaseAgent):
             return None
 
     def _classify_behavior(
-        self,
-        embeddings: Optional[np.ndarray],
-        darvo: Dict,
-        gaslighting: Dict
-    ) -> Dict[str, Any]:
-        """
-        Classify the primary behavioral pattern.
+        self, embeddings: np.ndarray | None, darvo: dict, gaslighting: dict
+    ) -> dict[str, Any]:
+        """Classify the primary behavioral pattern.
 
         Uses rule-based classification initially.
         TODO: Replace with trained classifier using embeddings.
@@ -399,7 +411,7 @@ class BehavioralAgent(BaseAgent):
             "gaslighting": gaslighting["score"],
             "manipulation": (darvo["score"] + gaslighting["score"]) / 2,
             "aggressive": 0.0,
-            "defensive": 0.0
+            "defensive": 0.0,
         }
 
         # Adjust normal probability based on detected patterns
@@ -414,20 +426,15 @@ class BehavioralAgent(BaseAgent):
         # Get primary class
         primary_class = max(probabilities, key=probabilities.get)
 
-        return {
-            "primary_class": primary_class,
-            "probabilities": probabilities
-        }
+        return {"primary_class": primary_class, "probabilities": probabilities}
 
     def _calculate_confidence(self, indicators: BehavioralIndicators) -> float:
-        """
-        Calculate overall confidence in the behavioral analysis.
-        """
+        """Calculate overall confidence in the behavioral analysis."""
         # Higher confidence when patterns are clearly detected or clearly absent
         pattern_scores = [
             indicators.darvo_score,
             indicators.gaslighting_score,
-            indicators.manipulation_score
+            indicators.manipulation_score,
         ]
 
         # Confidence is higher at extremes (clear detection or clear absence)
@@ -443,16 +450,14 @@ class BehavioralAgent(BaseAgent):
 
         return confidence
 
-    def _split_sentences(self, text: str) -> List[str]:
+    def _split_sentences(self, text: str) -> list[str]:
         """Split text into sentences."""
         # Simple sentence splitting
-        sentences = re.split(r'[.!?]+', text)
+        sentences = re.split(r"[.!?]+", text)
         return [s.strip() for s in sentences if s.strip()]
 
     async def self_critique(self, result: AnalysisResult) -> float:
-        """
-        Self-critique behavioral analysis quality.
-        """
+        """Self-critique behavioral analysis quality."""
         if not result.is_successful:
             return 0.0
 

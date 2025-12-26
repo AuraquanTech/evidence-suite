@@ -2,9 +2,11 @@
 Evidence Suite - Test Configuration
 Pytest fixtures and configuration for testing.
 """
+
 import os
 import sys
 from pathlib import Path
+
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -15,13 +17,13 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
 os.environ["SYNC_DATABASE_URL"] = "sqlite:///./test.db"
 os.environ["REDIS_URL"] = ""  # Disable Redis in tests
 
-import pytest
 import asyncio
-from httpx import AsyncClient, ASGITransport
+
+import pytest
+from httpx import ASGITransport, AsyncClient
 
 # Import after environment is set
 from core.database.models import Base
-from core.database.session import get_engine, get_async_engine
 
 
 @pytest.fixture(scope="session")

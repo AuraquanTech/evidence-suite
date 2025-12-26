@@ -2,11 +2,13 @@
 Evidence Suite - Comprehensive Agent Tests
 Unit tests for OCR, Behavioral, and Fusion agents.
 """
-import pytest
+
 import asyncio
 import sys
 from pathlib import Path
-from typing import Dict, Any
+
+import pytest
+
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,6 +21,7 @@ class TestBehavioralAgent:
     async def agent(self):
         """Create and initialize behavioral agent."""
         from agents.behavioral_agent import BehavioralAgent
+
         agent = BehavioralAgent()
         await agent.initialize()
         return agent
@@ -114,6 +117,7 @@ class TestFusionAgent:
     async def agent(self):
         """Create and initialize fusion agent."""
         from agents.fusion_agent import FusionAgent
+
         agent = FusionAgent()
         await agent.initialize()
         return agent
@@ -216,6 +220,7 @@ class TestOCRAgent:
     async def agent(self):
         """Create and initialize OCR agent."""
         from agents.ocr_agent import OCRAgent
+
         agent = OCRAgent()
         await agent.initialize()
         return agent
@@ -289,6 +294,7 @@ class TestPerformanceMetrics:
     async def test_behavioral_latency(self):
         """Test behavioral agent latency is within bounds."""
         import time
+
         from agents.behavioral_agent import BehavioralAgent
 
         agent = BehavioralAgent()
@@ -310,8 +316,10 @@ class TestPerformanceMetrics:
     @pytest.mark.asyncio
     async def test_memory_stability(self):
         """Test agent doesn't leak memory over multiple calls."""
-        import psutil
         import os
+
+        import psutil
+
         from agents.behavioral_agent import BehavioralAgent
 
         agent = BehavioralAgent()

@@ -2,20 +2,18 @@
 Evidence Suite - Comprehensive Stress Testing Framework
 Stress tests for pipeline, API, and agents with metrics collection.
 """
+
 import asyncio
-import os
+import json
+import random
+import statistics
 import sys
 import time
-import random
-import string
-import statistics
-import json
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass, field, asdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import traceback
+from typing import Any
+
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -24,28 +22,30 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 @dataclass
 class StressTestResult:
     """Result from a single stress test run."""
+
     test_name: str
     success: bool
     duration_ms: float
-    error: Optional[str] = None
-    memory_mb: Optional[float] = None
-    cpu_percent: Optional[float] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    memory_mb: float | None = None
+    cpu_percent: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class StressTestReport:
     """Aggregated stress test report."""
+
     suite_name: str
     timestamp: str
     total_tests: int
     passed: int
     failed: int
     total_duration_s: float
-    results: List[StressTestResult]
-    metrics: Dict[str, Any] = field(default_factory=dict)
+    results: list[StressTestResult]
+    metrics: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "suite_name": self.suite_name,
             "timestamp": self.timestamp,
@@ -70,7 +70,7 @@ class StressTestRunner:
     def __init__(self, concurrency: int = 10, iterations: int = 100):
         self.concurrency = concurrency
         self.iterations = iterations
-        self.results: List[StressTestResult] = []
+        self.results: list[StressTestResult] = []
 
     def _generate_test_text(self, pattern: str = "mixed") -> str:
         """Generate test text for behavioral analysis."""
@@ -108,21 +108,21 @@ class StressTestRunner:
             return random.choice(all_texts)
         return random.choice(patterns.get(pattern, patterns["normal"]))
 
-    async def stress_test_pipeline(self) -> List[StressTestResult]:
+    async def stress_test_pipeline(self) -> list[StressTestResult]:
         """Stress test the analysis pipeline."""
         results = []
 
         try:
             from pipeline import EvidencePipeline
+
             pipeline = EvidencePipeline()
             await pipeline.initialize()
         except Exception as e:
-            return [StressTestResult(
-                test_name="pipeline_init",
-                success=False,
-                duration_ms=0,
-                error=str(e)
-            )]
+            return [
+                StressTestResult(
+                    test_name="pipeline_init", success=False, duration_ms=0, error=str(e)
+                )
+            ]
 
         async def run_single_analysis(idx: int) -> StressTestResult:
             start = time.perf_counter()
@@ -139,14 +139,14 @@ class StressTestRunner:
                         "text_length": len(text),
                         "fused_score": result.fused_score,
                         "classification": result.fused_classification,
-                    }
+                    },
                 )
             except Exception as e:
                 return StressTestResult(
                     test_name=f"pipeline_analysis_{idx}",
                     success=False,
                     duration_ms=(time.perf_counter() - start) * 1000,
-                    error=str(e)
+                    error=str(e),
                 )
 
         # Run concurrent tests
@@ -161,13 +161,14 @@ class StressTestRunner:
 
         return list(results)
 
-    async def stress_test_agents(self) -> List[StressTestResult]:
+    async def stress_test_agents(self) -> list[StressTestResult]:
         """Stress test individual agents."""
         results = []
 
         # Test behavioral agent
         try:
             from agents.behavioral_agent import BehavioralAgent
+
             agent = BehavioralAgent()
             await agent.initialize()
 
@@ -178,38 +179,42 @@ class StressTestRunner:
                     result = await agent.analyze(text)
                     duration = (time.perf_counter() - start) * 1000
 
-                    results.append(StressTestResult(
-                        test_name=f"behavioral_agent_{i}",
-                        success=result.success,
-                        duration_ms=duration,
-                        metadata={
-                            "darvo_score": result.data.get("darvo_score"),
-                            "gaslighting_score": result.data.get("gaslighting_score"),
-                        }
-                    ))
+                    results.append(
+                        StressTestResult(
+                            test_name=f"behavioral_agent_{i}",
+                            success=result.success,
+                            duration_ms=duration,
+                            metadata={
+                                "darvo_score": result.data.get("darvo_score"),
+                                "gaslighting_score": result.data.get("gaslighting_score"),
+                            },
+                        )
+                    )
                 except Exception as e:
-                    results.append(StressTestResult(
-                        test_name=f"behavioral_agent_{i}",
-                        success=False,
-                        duration_ms=(time.perf_counter() - start) * 1000,
-                        error=str(e)
-                    ))
+                    results.append(
+                        StressTestResult(
+                            test_name=f"behavioral_agent_{i}",
+                            success=False,
+                            duration_ms=(time.perf_counter() - start) * 1000,
+                            error=str(e),
+                        )
+                    )
         except Exception as e:
-            results.append(StressTestResult(
-                test_name="behavioral_agent_init",
-                success=False,
-                duration_ms=0,
-                error=str(e)
-            ))
+            results.append(
+                StressTestResult(
+                    test_name="behavioral_agent_init", success=False, duration_ms=0, error=str(e)
+                )
+            )
 
         return results
 
-    def stress_test_cache(self) -> List[StressTestResult]:
+    def stress_test_cache(self) -> list[StressTestResult]:
         """Stress test Redis cache operations."""
         results = []
 
         try:
             import asyncio
+
             from core.cache import CacheManager
 
             async def run_cache_tests():
@@ -217,12 +222,14 @@ class StressTestRunner:
                 await cache.connect()
 
                 if not cache.is_connected:
-                    return [StressTestResult(
-                        test_name="cache_connection",
-                        success=False,
-                        duration_ms=0,
-                        error="Redis not available"
-                    )]
+                    return [
+                        StressTestResult(
+                            test_name="cache_connection",
+                            success=False,
+                            duration_ms=0,
+                            error="Redis not available",
+                        )
+                    ]
 
                 cache_results = []
 
@@ -237,18 +244,22 @@ class StressTestRunner:
                         retrieved = await cache.get_analysis(key)
                         duration = (time.perf_counter() - start) * 1000
 
-                        cache_results.append(StressTestResult(
-                            test_name=f"cache_set_get_{i}",
-                            success=retrieved is not None,
-                            duration_ms=duration,
-                        ))
+                        cache_results.append(
+                            StressTestResult(
+                                test_name=f"cache_set_get_{i}",
+                                success=retrieved is not None,
+                                duration_ms=duration,
+                            )
+                        )
                     except Exception as e:
-                        cache_results.append(StressTestResult(
-                            test_name=f"cache_set_get_{i}",
-                            success=False,
-                            duration_ms=(time.perf_counter() - start) * 1000,
-                            error=str(e)
-                        ))
+                        cache_results.append(
+                            StressTestResult(
+                                test_name=f"cache_set_get_{i}",
+                                success=False,
+                                duration_ms=(time.perf_counter() - start) * 1000,
+                                error=str(e),
+                            )
+                        )
 
                 await cache.close()
                 return cache_results
@@ -256,21 +267,18 @@ class StressTestRunner:
             return asyncio.run(run_cache_tests())
 
         except Exception as e:
-            return [StressTestResult(
-                test_name="cache_init",
-                success=False,
-                duration_ms=0,
-                error=str(e)
-            )]
+            return [
+                StressTestResult(test_name="cache_init", success=False, duration_ms=0, error=str(e))
+            ]
 
     def run_all_stress_tests(self) -> StressTestReport:
         """Run all stress tests and generate report."""
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("EVIDENCE SUITE STRESS TEST")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"Concurrency: {self.concurrency}")
         print(f"Iterations: {self.iterations}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         start_time = time.time()
         all_results = []
@@ -319,9 +327,15 @@ class StressTestRunner:
                 "min_duration_ms": round(min(durations), 2),
                 "max_duration_ms": round(max(durations), 2),
                 "std_dev_ms": round(statistics.stdev(durations), 2) if len(durations) > 1 else 0,
-                "p95_duration_ms": round(sorted(durations)[int(len(durations) * 0.95)], 2) if durations else 0,
-                "p99_duration_ms": round(sorted(durations)[int(len(durations) * 0.99)], 2) if durations else 0,
-                "throughput_ops_per_sec": round(len(durations) / total_duration, 2) if total_duration > 0 else 0,
+                "p95_duration_ms": round(sorted(durations)[int(len(durations) * 0.95)], 2)
+                if durations
+                else 0,
+                "p99_duration_ms": round(sorted(durations)[int(len(durations) * 0.99)], 2)
+                if durations
+                else 0,
+                "throughput_ops_per_sec": round(len(durations) / total_duration, 2)
+                if total_duration > 0
+                else 0,
             }
 
         report = StressTestReport(
@@ -336,26 +350,24 @@ class StressTestRunner:
         )
 
         # Print summary
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("STRESS TEST SUMMARY")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"Total Tests: {report.total_tests}")
         print(f"Passed: {report.passed}")
         print(f"Failed: {report.failed}")
-        print(f"Pass Rate: {report.passed/report.total_tests*100:.1f}%")
+        print(f"Pass Rate: {report.passed / report.total_tests * 100:.1f}%")
         print(f"Total Duration: {report.total_duration_s:.2f}s")
-        print(f"\nPerformance Metrics:")
+        print("\nPerformance Metrics:")
         for key, value in metrics.items():
             print(f"  {key}: {value}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         return report
 
 
 def run_stress_tests(
-    concurrency: int = 10,
-    iterations: int = 100,
-    output_file: Optional[str] = None
+    concurrency: int = 10, iterations: int = 100, output_file: str | None = None
 ) -> bool:
     """Run stress tests and optionally save report."""
     runner = StressTestRunner(concurrency=concurrency, iterations=iterations)
@@ -372,19 +384,20 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Evidence Suite Stress Tests")
-    parser.add_argument("-c", "--concurrency", type=int, default=10,
-                        help="Number of concurrent operations")
-    parser.add_argument("-i", "--iterations", type=int, default=100,
-                        help="Number of iterations per test")
-    parser.add_argument("-o", "--output", type=str, default=None,
-                        help="Output file for JSON report")
+    parser.add_argument(
+        "-c", "--concurrency", type=int, default=10, help="Number of concurrent operations"
+    )
+    parser.add_argument(
+        "-i", "--iterations", type=int, default=100, help="Number of iterations per test"
+    )
+    parser.add_argument(
+        "-o", "--output", type=str, default=None, help="Output file for JSON report"
+    )
 
     args = parser.parse_args()
 
     success = run_stress_tests(
-        concurrency=args.concurrency,
-        iterations=args.iterations,
-        output_file=args.output
+        concurrency=args.concurrency, iterations=args.iterations, output_file=args.output
     )
 
     sys.exit(0 if success else 1)

@@ -1,3 +1,1 @@
-"""
-Evidence Suite - REST API Module
-"""
+"""Evidence Suite - REST API Module"""

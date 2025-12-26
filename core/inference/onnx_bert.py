@@ -1,20 +1,19 @@
-"""
-Evidence Suite - ONNX BERT Inference
+"""Evidence Suite - ONNX BERT Inference
 GPU-accelerated BERT inference using ONNX Runtime for RTX 5090 Blackwell.
 
 ONNX Runtime has native support for Blackwell architecture (sm_120) via cuDNN,
 unlike PyTorch which lacks sm_120 kernel support.
 """
+
 import os
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
+
 import numpy as np
 from loguru import logger
 
 
 class ONNXBertInference:
-    """
-    ONNX Runtime-based BERT inference for Blackwell GPUs.
+    """ONNX Runtime-based BERT inference for Blackwell GPUs.
 
     Features:
     - Native sm_120 support via cuDNN
@@ -30,7 +29,7 @@ class ONNXBertInference:
         max_length: int = 512,
         use_gpu: bool = True,
         use_fp16: bool = False,
-        cache_dir: Optional[str] = None
+        cache_dir: str | None = None,
     ):
         self.model_name = model_name
         self.max_length = max_length
@@ -69,10 +68,8 @@ class ONNXBertInference:
     def _init_tokenizer(self):
         """Initialize HuggingFace tokenizer."""
         from transformers import AutoTokenizer
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name,
-            cache_dir=self.cache_dir
-        )
+
+        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name, cache_dir=self.cache_dir)
         logger.debug("Tokenizer initialized")
 
     def _init_session(self):
@@ -123,9 +120,7 @@ class ONNXBertInference:
 
         # Create session
         self._session = ort.InferenceSession(
-            onnx_path,
-            sess_options=sess_options,
-            providers=providers
+            onnx_path, sess_options=sess_options, providers=providers
         )
 
         # Log actual providers being used
@@ -152,10 +147,7 @@ class ONNXBertInference:
         from transformers import AutoModel
 
         # Load PyTorch model
-        model = AutoModel.from_pretrained(
-            self.model_name,
-            cache_dir=self.cache_dir
-        )
+        model = AutoModel.from_pretrained(self.model_name, cache_dir=self.cache_dir)
         model.eval()
 
         # Create dummy inputs
@@ -215,13 +207,8 @@ class ONNXBertInference:
         except Exception as e:
             logger.warning(f"ONNX optimization failed: {e}")
 
-    def encode(
-        self,
-        texts: List[str],
-        batch_size: int = 8
-    ) -> np.ndarray:
-        """
-        Encode texts to embeddings.
+    def encode(self, texts: list[str], batch_size: int = 8) -> np.ndarray:
+        """Encode texts to embeddings.
 
         Args:
             texts: List of texts to encode
@@ -237,7 +224,7 @@ class ONNXBertInference:
         all_embeddings = []
 
         for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i:i + batch_size]
+            batch_texts = texts[i : i + batch_size]
 
             # Tokenize
             inputs = self._tokenizer(
@@ -245,7 +232,7 @@ class ONNXBertInference:
                 max_length=self.max_length,
                 padding="max_length",
                 truncation=True,
-                return_tensors="np"
+                return_tensors="np",
             )
 
             # Run inference
@@ -253,8 +240,7 @@ class ONNXBertInference:
                 "input_ids": inputs["input_ids"].astype(np.int64),
                 "attention_mask": inputs["attention_mask"].astype(np.int64),
                 "token_type_ids": inputs.get(
-                    "token_type_ids",
-                    np.zeros_like(inputs["input_ids"])
+                    "token_type_ids", np.zeros_like(inputs["input_ids"])
                 ).astype(np.int64),
             }
 
@@ -280,7 +266,7 @@ class ONNXBertInference:
 
 
 # Singleton instances by model name
-_bert_instances: Dict[str, ONNXBertInference] = {}
+_bert_instances: dict[str, ONNXBertInference] = {}
 
 
 def get_bert_inference(
@@ -288,8 +274,7 @@ def get_bert_inference(
     use_gpu: bool = True,
     use_fp16: bool = False,
 ) -> ONNXBertInference:
-    """
-    Get singleton BERT inference instance.
+    """Get singleton BERT inference instance.
 
     Args:
         model_name: HuggingFace model name

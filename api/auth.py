@@ -1,15 +1,14 @@
-"""
-Evidence Suite - JWT Authentication
+"""Evidence Suite - JWT Authentication
 With rate limiting for security.
 """
-from datetime import datetime, timedelta
-from typing import Optional, Dict
-from uuid import UUID
-from collections import defaultdict
-import time
-import asyncio
 
-from fastapi import Depends, HTTPException, status, Request
+import asyncio
+import time
+from collections import defaultdict
+from datetime import datetime, timedelta
+from uuid import UUID
+
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -23,7 +22,7 @@ from core.database.session import get_db
 
 
 # Rate limiting storage (in-memory, use Redis in production)
-_rate_limit_store: Dict[str, list] = defaultdict(list)
+_rate_limit_store: dict[str, list] = defaultdict(list)
 _rate_limit_lock = asyncio.Lock()
 
 # Rate limit settings
@@ -33,8 +32,7 @@ LOCKOUT_DURATION = 300  # 5 minute lockout after max attempts
 
 
 async def check_rate_limit(identifier: str, request: Request) -> None:
-    """
-    Check rate limit for an identifier (IP or email).
+    """Check rate limit for an identifier (IP or email).
     Raises HTTPException if rate limit exceeded.
     """
     async with _rate_limit_lock:
@@ -82,6 +80,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=F
 
 class Token(BaseModel):
     """Token response model."""
+
     access_token: str
     token_type: str
     expires_in: int
@@ -89,24 +88,27 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     """Token payload data."""
-    user_id: Optional[str] = None
-    email: Optional[str] = None
-    role: Optional[str] = None
+
+    user_id: str | None = None
+    email: str | None = None
+    role: str | None = None
 
 
 class UserCreate(BaseModel):
     """User creation model."""
+
     email: str
     password: str
-    name: Optional[str] = None
+    name: str | None = None
     role: str = "analyst"
 
 
 class UserResponse(BaseModel):
     """User response model."""
+
     id: UUID
     email: str
-    name: Optional[str]
+    name: str | None
     role: str
     is_active: bool
     created_at: datetime
@@ -125,7 +127,7 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """Create JWT access token."""
     to_encode = data.copy()
     if expires_delta:
@@ -135,20 +137,18 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(
-        to_encode,
-        api_settings.jwt_secret,
-        algorithm=api_settings.jwt_algorithm
+        to_encode, api_settings.jwt_secret, algorithm=api_settings.jwt_algorithm
     )
     return encoded_jwt
 
 
-async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     """Get user by email."""
     result = await db.execute(select(User).where(User.email == email))
     return result.scalar_one_or_none()
 
 
-async def authenticate_user(db: AsyncSession, email: str, password: str) -> Optional[User]:
+async def authenticate_user(db: AsyncSession, email: str, password: str) -> User | None:
     """Authenticate user with email and password."""
     user = await get_user_by_email(db, email)
     if not user:
@@ -159,18 +159,15 @@ async def authenticate_user(db: AsyncSession, email: str, password: str) -> Opti
 
 
 async def get_current_user(
-    token: Optional[str] = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db)
-) -> Optional[User]:
+    token: str | None = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
+) -> User | None:
     """Get current authenticated user."""
     if not token:
         return None
 
     try:
         payload = jwt.decode(
-            token,
-            api_settings.jwt_secret,
-            algorithms=[api_settings.jwt_algorithm]
+            token, api_settings.jwt_secret, algorithms=[api_settings.jwt_algorithm]
         )
         user_id: str = payload.get("sub")
         if user_id is None:
@@ -188,9 +185,7 @@ async def get_current_user(
     return user
 
 
-async def get_current_active_user(
-    current_user: Optional[User] = Depends(get_current_user)
-) -> User:
+async def get_current_active_user(current_user: User | None = Depends(get_current_user)) -> User:
     """Get current active user, raise exception if not authenticated."""
     if current_user is None:
         raise HTTPException(
@@ -203,20 +198,20 @@ async def get_current_active_user(
 
 def require_role(*roles: str):
     """Dependency to require specific role(s)."""
-    async def role_checker(
-        current_user: User = Depends(get_current_active_user)
-    ) -> User:
+
+    async def role_checker(current_user: User = Depends(get_current_active_user)) -> User:
         if current_user.role not in roles:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions"
+                status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
             )
         return current_user
+
     return role_checker
 
 
 # Route handlers (to be added to router)
 from fastapi import APIRouter
+
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -225,7 +220,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 async def login(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Login and get access token. Rate limited to prevent brute force."""
     # Rate limit by IP address
@@ -254,16 +249,12 @@ async def login(
     return Token(
         access_token=access_token,
         token_type="bearer",
-        expires_in=api_settings.jwt_expire_minutes * 60
+        expires_in=api_settings.jwt_expire_minutes * 60,
     )
 
 
 @router.post("/register", response_model=UserResponse, status_code=201)
-async def register(
-    request: Request,
-    user_data: UserCreate,
-    db: AsyncSession = Depends(get_db)
-):
+async def register(request: Request, user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     """Register a new user. Rate limited to prevent spam."""
     # Rate limit registration by IP
     client_ip = get_client_ip(request)
@@ -272,10 +263,7 @@ async def register(
     # Check if user exists
     existing = await get_user_by_email(db, user_data.email)
     if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered"
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
     # Create user
     user = User(

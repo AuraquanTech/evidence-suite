@@ -1,12 +1,12 @@
-"""
-Evidence Suite - API Middleware
+"""Evidence Suite - API Middleware
 Request logging, metrics, compression, timeout handling, and security.
 """
+
 import asyncio
 import gzip
 import time
 import uuid
-from typing import Callable, Optional
+from collections.abc import Callable
 from io import BytesIO
 
 from fastapi import Request, Response
@@ -23,8 +23,7 @@ COMPRESSION_LEVEL = 6  # gzip compression level (1-9)
 
 
 class RequestTimeoutMiddleware(BaseHTTPMiddleware):
-    """
-    Middleware to enforce request timeout limits.
+    """Middleware to enforce request timeout limits.
     Prevents long-running requests from consuming resources.
     """
 
@@ -39,11 +38,8 @@ class RequestTimeoutMiddleware(BaseHTTPMiddleware):
             timeout = 120  # 2 minutes for uploads
 
         try:
-            return await asyncio.wait_for(
-                call_next(request),
-                timeout=timeout
-            )
-        except asyncio.TimeoutError:
+            return await asyncio.wait_for(call_next(request), timeout=timeout)
+        except TimeoutError:
             logger = get_logger()
             logger.warning(
                 f"Request timeout after {timeout}s",
@@ -53,13 +49,12 @@ class RequestTimeoutMiddleware(BaseHTTPMiddleware):
             return Response(
                 content='{"detail": "Request timeout"}',
                 status_code=504,
-                media_type="application/json"
+                media_type="application/json",
             )
 
 
 class CompressionMiddleware(BaseHTTPMiddleware):
-    """
-    Middleware for gzip response compression.
+    """Middleware for gzip response compression.
     Compresses responses larger than threshold when client supports it.
     """
 
@@ -88,12 +83,12 @@ class CompressionMiddleware(BaseHTTPMiddleware):
                 content=body,
                 status_code=response.status_code,
                 headers=dict(response.headers),
-                media_type=response.media_type
+                media_type=response.media_type,
             )
 
         # Compress
         buffer = BytesIO()
-        with gzip.GzipFile(mode='wb', fileobj=buffer, compresslevel=COMPRESSION_LEVEL) as gz:
+        with gzip.GzipFile(mode="wb", fileobj=buffer, compresslevel=COMPRESSION_LEVEL) as gz:
             gz.write(body)
         compressed_body = buffer.getvalue()
 
@@ -106,14 +101,14 @@ class CompressionMiddleware(BaseHTTPMiddleware):
                 content=compressed_body,
                 status_code=response.status_code,
                 headers=headers,
-                media_type=response.media_type
+                media_type=response.media_type,
             )
 
         return Response(
             content=body,
             status_code=response.status_code,
             headers=dict(response.headers),
-            media_type=response.media_type
+            media_type=response.media_type,
         )
 
 
@@ -132,7 +127,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         # Log request start
         logger.debug(
-            f"Request started",
+            "Request started",
             request_id=request_id,
             method=request.method,
             path=request.url.path,
@@ -172,7 +167,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             duration_ms = (time.perf_counter() - start_time) * 1000
 
             logger.error(
-                f"Request failed: {str(e)}",
+                f"Request failed: {e!s}",
                 request_id=request_id,
                 method=request.method,
                 path=request.url.path,

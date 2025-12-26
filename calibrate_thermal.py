@@ -1,5 +1,4 @@
-"""
-Evidence Suite - RTX 5090 Mobile Thermal Calibration Suite
+"""Evidence Suite - RTX 5090 Mobile Thermal Calibration Suite
 Finds the optimal "Goldilocks Zone" for sustained forensic processing.
 
 This script:
@@ -9,19 +8,21 @@ This script:
 4. Generates a calibration report
 5. Saves thermal profile for production use
 """
+
+import json
 import sys
 import time
-import json
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass, asdict
-from typing import List, Optional
+
 
 # Add project to path
 sys.path.insert(0, str(Path(__file__).parent))
 
 try:
     import torch
+
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
@@ -29,18 +30,21 @@ except ImportError:
 
 try:
     import pynvml
+
     PYNVML_AVAILABLE = True
 except ImportError:
     PYNVML_AVAILABLE = False
     print("WARNING: pynvml not installed - using nvidia-smi fallback")
 
 from loguru import logger
+
 from core.hardware_monitor import HardwareMonitor, ThermalState
 
 
 @dataclass
 class ThermalSample:
     """Single thermal measurement."""
+
     timestamp: str
     elapsed_sec: float
     gpu_temp_c: float
@@ -54,11 +58,12 @@ class ThermalSample:
 @dataclass
 class CalibrationResult:
     """Complete calibration result."""
+
     system_name: str
     gpu_name: str
     test_duration_sec: float
     target_load: float
-    samples: List[ThermalSample]
+    samples: list[ThermalSample]
 
     # Derived metrics
     avg_temp: float
@@ -72,8 +77,7 @@ class CalibrationResult:
 
 
 class MobileThermalCalibrator:
-    """
-    RTX 5090 Mobile Thermal Calibration Suite.
+    """RTX 5090 Mobile Thermal Calibration Suite.
 
     Stress tests the GPU at controlled load levels to find the optimal
     sustained processing threshold that avoids thermal throttling.
@@ -85,14 +89,13 @@ class MobileThermalCalibrator:
     TEMP_CRITICAL = 90
 
     def __init__(self, target_load: float = 0.80):
-        """
-        Initialize calibrator.
+        """Initialize calibrator.
 
         Args:
             target_load: Target GPU utilization (0.0-1.0), default 80%
         """
         self.target_load = target_load
-        self.samples: List[ThermalSample] = []
+        self.samples: list[ThermalSample] = []
         self.throttle_events = 0
 
         # Initialize NVML if available
@@ -109,7 +112,7 @@ class MobileThermalCalibrator:
         # Fallback to HardwareMonitor
         self.monitor = HardwareMonitor()
 
-        logger.info(f"Thermal Calibrator initialized (target: {target_load*100:.0f}%)")
+        logger.info(f"Thermal Calibrator initialized (target: {target_load * 100:.0f}%)")
 
     def get_gpu_stats(self) -> dict:
         """Get current GPU statistics."""
@@ -117,8 +120,7 @@ class MobileThermalCalibrator:
             try:
                 util = pynvml.nvmlDeviceGetUtilizationRates(self._nvml_handle)
                 temp = pynvml.nvmlDeviceGetTemperature(
-                    self._nvml_handle,
-                    pynvml.NVML_TEMPERATURE_GPU
+                    self._nvml_handle, pynvml.NVML_TEMPERATURE_GPU
                 )
                 mem = pynvml.nvmlDeviceGetMemoryInfo(self._nvml_handle)
                 try:
@@ -131,7 +133,7 @@ class MobileThermalCalibrator:
                     "util": float(util.gpu),
                     "vram_used": float(mem.used) / (1024**2),
                     "vram_total": float(mem.total) / (1024**2),
-                    "power": float(power)
+                    "power": float(power),
                 }
             except Exception as e:
                 logger.debug(f"NVML query error: {e}")
@@ -144,7 +146,7 @@ class MobileThermalCalibrator:
                 "util": status.utilization_percent,
                 "vram_used": status.vram_used_mb,
                 "vram_total": status.vram_total_mb,
-                "power": status.power_draw_w
+                "power": status.power_draw_w,
             }
 
         return {"temp": 0, "util": 0, "vram_used": 0, "vram_total": 0, "power": 0}
@@ -157,8 +159,8 @@ class MobileThermalCalibrator:
         # Use bfloat16 for Blackwell architecture efficiency
         dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
-        a = torch.randn(size, size, device='cuda', dtype=dtype)
-        b = torch.randn(size, size, device='cuda', dtype=dtype)
+        a = torch.randn(size, size, device="cuda", dtype=dtype)
+        b = torch.randn(size, size, device="cuda", dtype=dtype)
 
         logger.info(f"Created {size}x{size} matrices ({dtype})")
         return a, b
@@ -177,10 +179,9 @@ class MobileThermalCalibrator:
         self,
         duration_minutes: float = 2.0,
         sample_interval: float = 1.0,
-        matrix_size: int = 10240  # Optimized for RTX 5090 24GB
+        matrix_size: int = 10240,  # Optimized for RTX 5090 24GB
     ) -> CalibrationResult:
-        """
-        Run thermal calibration test.
+        """Run thermal calibration test.
 
         Args:
             duration_minutes: Test duration in minutes
@@ -223,8 +224,8 @@ class MobileThermalCalibrator:
 
                 # Get current stats
                 stats = self.get_gpu_stats()
-                temp = stats['temp']
-                util = stats['util']
+                temp = stats["temp"]
+                util = stats["util"]
 
                 # Determine thermal state
                 if temp >= self.TEMP_CRITICAL:
@@ -243,10 +244,10 @@ class MobileThermalCalibrator:
                         elapsed_sec=round(elapsed, 1),
                         gpu_temp_c=temp,
                         gpu_util_percent=util,
-                        vram_used_mb=stats['vram_used'],
-                        vram_total_mb=stats['vram_total'],
-                        power_draw_w=stats['power'],
-                        thermal_state=thermal_state.value
+                        vram_used_mb=stats["vram_used"],
+                        vram_total_mb=stats["vram_total"],
+                        power_draw_w=stats["power"],
+                        thermal_state=thermal_state.value,
                     )
                     self.samples.append(sample)
                     last_sample = elapsed
@@ -282,7 +283,7 @@ class MobileThermalCalibrator:
                 # Dynamic load adjustment
                 if util < (self.target_load * 100):
                     # Increase load
-                    iterations = int(30 * (self.target_load - util/100 + 0.1))
+                    iterations = int(30 * (self.target_load - util / 100 + 0.1))
                     self._run_compute_cycle(a, b, max(5, iterations))
                 else:
                     # Maintain current load
@@ -320,7 +321,7 @@ class MobileThermalCalibrator:
         # Temperature stability (std dev)
         mean_temp = avg_temp
         variance = sum((t - mean_temp) ** 2 for t in temps) / len(temps)
-        temp_stability = variance ** 0.5
+        temp_stability = variance**0.5
 
         avg_power = sum(powers) / len(powers) if powers else 0
 
@@ -353,7 +354,7 @@ class MobileThermalCalibrator:
             avg_power=round(avg_power, 1),
             throttle_events=self.throttle_events,
             recommended_load=round(recommended_load, 2),
-            thermal_headroom=round(thermal_headroom, 1)
+            thermal_headroom=round(thermal_headroom, 1),
         )
 
         self._print_report(result)
@@ -388,11 +389,13 @@ class MobileThermalCalibrator:
         print(f"    Recommended:    {result.recommended_load * 100:.0f}%")
 
         if result.recommended_load < result.target_load:
-            print(f"\n  ⚠️  REDUCE LOAD to {result.recommended_load*100:.0f}% for stability")
+            print(f"\n  ⚠️  REDUCE LOAD to {result.recommended_load * 100:.0f}% for stability")
         elif result.recommended_load > result.target_load:
-            print(f"\n  ✅  HEADROOM AVAILABLE - can increase to {result.recommended_load*100:.0f}%")
+            print(
+                f"\n  ✅  HEADROOM AVAILABLE - can increase to {result.recommended_load * 100:.0f}%"
+            )
         else:
-            print(f"\n  ✅  OPTIMAL - 80% load is appropriate for your cooling")
+            print("\n  ✅  OPTIMAL - 80% load is appropriate for your cooling")
 
         print("=" * 60 + "\n")
 
@@ -405,24 +408,26 @@ class MobileThermalCalibrator:
 
         # Save full results as JSON
         json_path = output_dir / f"thermal_calibration_{timestamp}.json"
-        with open(json_path, 'w') as f:
+        with open(json_path, "w") as f:
             data = asdict(result)
             # Convert samples to dicts
-            data['samples'] = [asdict(s) for s in result.samples]
+            data["samples"] = [asdict(s) for s in result.samples]
             json.dump(data, f, indent=2)
 
         # Save CSV for analysis
         csv_path = output_dir / f"thermal_samples_{timestamp}.csv"
-        with open(csv_path, 'w') as f:
+        with open(csv_path, "w") as f:
             headers = "timestamp,elapsed_sec,gpu_temp_c,gpu_util_percent,vram_used_mb,power_draw_w,thermal_state\n"
             f.write(headers)
-            for s in result.samples:
-                f.write(f"{s.timestamp},{s.elapsed_sec},{s.gpu_temp_c},{s.gpu_util_percent},"
-                       f"{s.vram_used_mb},{s.power_draw_w},{s.thermal_state}\n")
+            f.writelines(
+                f"{s.timestamp},{s.elapsed_sec},{s.gpu_temp_c},{s.gpu_util_percent},"
+                f"{s.vram_used_mb},{s.power_draw_w},{s.thermal_state}\n"
+                for s in result.samples
+            )
 
         # Save recommended config
         config_path = output_dir / "recommended_config.yaml"
-        with open(config_path, 'w') as f:
+        with open(config_path, "w") as f:
             f.write(f"""# RTX 5090 Mobile Calibration Results
 # Generated: {datetime.now().isoformat()}
 
@@ -435,7 +440,7 @@ hardware:
 
   # Copy these values to your main config.yaml
   calibration_status: "complete"
-  calibration_date: "{datetime.now().strftime('%Y-%m-%d')}"
+  calibration_date: "{datetime.now().strftime("%Y-%m-%d")}"
 """)
 
         print(f"Results saved to: {output_dir}")
@@ -448,35 +453,29 @@ def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="RTX 5090 Mobile Thermal Calibration Suite"
+    parser = argparse.ArgumentParser(description="RTX 5090 Mobile Thermal Calibration Suite")
+    parser.add_argument(
+        "--duration", "-d", type=float, default=2.0, help="Test duration in minutes (default: 2)"
     )
     parser.add_argument(
-        "--duration", "-d",
-        type=float,
-        default=2.0,
-        help="Test duration in minutes (default: 2)"
-    )
-    parser.add_argument(
-        "--target-load", "-t",
+        "--target-load",
+        "-t",
         type=float,
         default=0.80,
-        help="Target GPU load 0.0-1.0 (default: 0.80)"
+        help="Target GPU load 0.0-1.0 (default: 0.80)",
     )
     parser.add_argument(
-        "--matrix-size", "-m",
+        "--matrix-size",
+        "-m",
         type=int,
         default=10240,
-        help="Matrix size for stress test (default: 10240)"
+        help="Matrix size for stress test (default: 10240)",
     )
 
     args = parser.parse_args()
 
     calibrator = MobileThermalCalibrator(target_load=args.target_load)
-    result = calibrator.calibrate(
-        duration_minutes=args.duration,
-        matrix_size=args.matrix_size
-    )
+    result = calibrator.calibrate(duration_minutes=args.duration, matrix_size=args.matrix_size)
 
     if result:
         print("\n✅ Calibration complete!")

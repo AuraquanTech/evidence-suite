@@ -1,6 +1,7 @@
 """
 Evidence Suite - Alembic Migration Environment
 """
+
 import asyncio
 from logging.config import fileConfig
 
@@ -12,6 +13,7 @@ from alembic import context
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.database.models import Base

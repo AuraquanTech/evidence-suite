@@ -1,32 +1,32 @@
-"""
-Evidence Suite - Analysis Routes
-"""
+"""Evidence Suite - Analysis Routes"""
+
 from datetime import datetime
-from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import (
-    EvidenceRecord,
-    AnalysisJob,
-    AnalysisResult,
-    ChainOfCustodyLog,
-    EvidenceStatus as DBEvidenceStatus,
-)
-from core.database.session import get_db
 from api.schemas.analysis import (
+    AnalysisJobResponse,
     AnalysisRequest,
     AnalysisResponse,
-    AnalysisJobResponse,
     AnalysisStatus,
     BatchAnalysisRequest,
     BatchAnalysisResponse,
     BehavioralIndicators,
     FusionResults,
 )
+from core.database import (
+    AnalysisJob,
+    ChainOfCustodyLog,
+    EvidenceRecord,
+)
+from core.database import (
+    EvidenceStatus as DBEvidenceStatus,
+)
+from core.database.session import get_db
+
 
 router = APIRouter(prefix="/analysis", tags=["Analysis"])
 
@@ -35,13 +35,11 @@ async def run_analysis_pipeline(evidence_id: UUID, db: AsyncSession):
     """Background task to run the analysis pipeline."""
     # Import pipeline components
     try:
-        from pipeline import EvidencePipeline
         from core.models import EvidenceType
+        from pipeline import EvidencePipeline
 
         # Get evidence record
-        result = await db.execute(
-            select(EvidenceRecord).where(EvidenceRecord.id == evidence_id)
-        )
+        result = await db.execute(select(EvidenceRecord).where(EvidenceRecord.id == evidence_id))
         evidence = result.scalar_one_or_none()
         if not evidence:
             return
@@ -119,9 +117,7 @@ async def run_analysis_pipeline(evidence_id: UUID, db: AsyncSession):
 
     except Exception as e:
         # Mark as error
-        result = await db.execute(
-            select(EvidenceRecord).where(EvidenceRecord.id == evidence_id)
-        )
+        result = await db.execute(select(EvidenceRecord).where(EvidenceRecord.id == evidence_id))
         evidence = result.scalar_one_or_none()
         if evidence:
             evidence.status = DBEvidenceStatus.ERROR
@@ -139,9 +135,7 @@ async def run_analysis_pipeline(evidence_id: UUID, db: AsyncSession):
 
 @router.post("/", response_model=AnalysisJobResponse, status_code=202)
 async def start_analysis(
-    request: AnalysisRequest,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    request: AnalysisRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)
 ):
     """Start analysis on evidence."""
     # Verify evidence exists
@@ -177,14 +171,9 @@ async def start_analysis(
 
 
 @router.get("/job/{job_id}", response_model=AnalysisJobResponse)
-async def get_job_status(
-    job_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_job_status(job_id: UUID, db: AsyncSession = Depends(get_db)):
     """Get analysis job status."""
-    result = await db.execute(
-        select(AnalysisJob).where(AnalysisJob.id == job_id)
-    )
+    result = await db.execute(select(AnalysisJob).where(AnalysisJob.id == job_id))
     job = result.scalar_one_or_none()
 
     if not job:
@@ -211,14 +200,9 @@ async def get_job_status(
 
 
 @router.get("/{evidence_id}", response_model=AnalysisResponse)
-async def get_analysis_results(
-    evidence_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_analysis_results(evidence_id: UUID, db: AsyncSession = Depends(get_db)):
     """Get analysis results for evidence."""
-    result = await db.execute(
-        select(EvidenceRecord).where(EvidenceRecord.id == evidence_id)
-    )
+    result = await db.execute(select(EvidenceRecord).where(EvidenceRecord.id == evidence_id))
     evidence = result.scalar_one_or_none()
 
     if not evidence:
@@ -271,16 +255,14 @@ async def get_analysis_results(
 async def start_batch_analysis(
     request: BatchAnalysisRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Start analysis on multiple evidence items."""
     job_ids = []
 
     for evidence_id in request.evidence_ids:
         # Verify evidence exists
-        result = await db.execute(
-            select(EvidenceRecord).where(EvidenceRecord.id == evidence_id)
-        )
+        result = await db.execute(select(EvidenceRecord).where(EvidenceRecord.id == evidence_id))
         evidence = result.scalar_one_or_none()
         if not evidence:
             continue

@@ -1,5 +1,4 @@
-"""
-Evidence Suite - RTX 5090 Tensor Core Stress Test
+"""Evidence Suite - RTX 5090 Tensor Core Stress Test
 Isolates and validates BF16 precision gains on Blackwell architecture.
 
 This test:
@@ -9,20 +8,23 @@ This test:
 4. Measures sustained Tensor Core throughput
 5. Generates a hardware certification report
 """
+
+import argparse
+import json
 import sys
 import time
-import json
-import argparse
-from pathlib import Path
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from dataclasses import dataclass, asdict
-from typing import List, Dict, Any, Optional
+from pathlib import Path
+from typing import Any
+
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
     import torch
     import torch.nn.functional as F
+
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
@@ -31,6 +33,7 @@ except ImportError:
 
 try:
     import pynvml
+
     PYNVML_AVAILABLE = True
 except ImportError:
     PYNVML_AVAILABLE = False
@@ -41,6 +44,7 @@ from loguru import logger
 @dataclass
 class PrecisionBenchmark:
     """Results for a single precision benchmark."""
+
     dtype: str
     matrix_size: int
     iterations: int
@@ -53,6 +57,7 @@ class PrecisionBenchmark:
 @dataclass
 class PrecisionComparison:
     """Comparison between precision types."""
+
     fp32_tflops: float
     fp16_tflops: float
     bf16_tflops: float
@@ -64,6 +69,7 @@ class PrecisionComparison:
 @dataclass
 class NumericalValidation:
     """Numerical precision validation results."""
+
     fp16_max_error: float
     bf16_max_error: float
     fp16_mean_error: float
@@ -74,22 +80,22 @@ class NumericalValidation:
 @dataclass
 class TensorCoreReport:
     """Complete Tensor Core stress test report."""
+
     timestamp: str
     gpu_name: str
     cuda_version: str
     torch_version: str
     bf16_supported: bool
     tensor_cores_available: bool
-    benchmarks: List[PrecisionBenchmark]
-    comparison: Optional[PrecisionComparison]
-    validation: Optional[NumericalValidation]
-    sustained_test: Dict[str, Any]
+    benchmarks: list[PrecisionBenchmark]
+    comparison: PrecisionComparison | None
+    validation: NumericalValidation | None
+    sustained_test: dict[str, Any]
     certification: str
 
 
 class TensorCoreStressTest:
-    """
-    RTX 5090 Tensor Core Stress Test Suite.
+    """RTX 5090 Tensor Core Stress Test Suite.
 
     Validates BF16 performance gains specific to Blackwell architecture.
     """
@@ -98,7 +104,7 @@ class TensorCoreStressTest:
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is not available")
 
-        self.device = torch.device('cuda')
+        self.device = torch.device("cuda")
         self.gpu_name = torch.cuda.get_device_name(0)
         self.bf16_supported = torch.cuda.is_bf16_supported()
         self.tensor_cores = self._detect_tensor_cores()
@@ -127,27 +133,21 @@ class TensorCoreStressTest:
         """Get current GPU temperature."""
         if self._nvml_handle:
             try:
-                return float(pynvml.nvmlDeviceGetTemperature(
-                    self._nvml_handle,
-                    pynvml.NVML_TEMPERATURE_GPU
-                ))
+                return float(
+                    pynvml.nvmlDeviceGetTemperature(self._nvml_handle, pynvml.NVML_TEMPERATURE_GPU)
+                )
             except Exception:
                 pass
         return 0.0
 
     def _get_memory_used_mb(self) -> float:
         """Get current GPU memory usage in MB."""
-        return torch.cuda.memory_allocated() / (1024 ** 2)
+        return torch.cuda.memory_allocated() / (1024**2)
 
     def benchmark_precision(
-        self,
-        dtype: torch.dtype,
-        matrix_size: int = 8192,
-        iterations: int = 100
+        self, dtype: torch.dtype, matrix_size: int = 8192, iterations: int = 100
     ) -> PrecisionBenchmark:
-        """
-        Benchmark matrix multiplication for a specific precision.
-        """
+        """Benchmark matrix multiplication for a specific precision."""
         dtype_name = str(dtype).replace("torch.", "")
         logger.info(f"Benchmarking {dtype_name} at {matrix_size}x{matrix_size}...")
 
@@ -171,7 +171,7 @@ class TensorCoreStressTest:
 
         # Calculate TFLOPS
         # Matrix multiply: 2 * N^3 FLOPs
-        flops_per_op = 2 * (matrix_size ** 3)
+        flops_per_op = 2 * (matrix_size**3)
         total_flops = flops_per_op * iterations
         tflops = (total_flops / total_time) / 1e12
 
@@ -186,13 +186,11 @@ class TensorCoreStressTest:
             total_time_sec=round(total_time, 3),
             mean_latency_ms=round((total_time / iterations) * 1000, 3),
             tflops=round(tflops, 2),
-            memory_used_mb=round(memory_used, 1)
+            memory_used_mb=round(memory_used, 1),
         )
 
     def compare_precisions(self, matrix_size: int = 8192) -> PrecisionComparison:
-        """
-        Compare FP32, FP16, and BF16 performance.
-        """
+        """Compare FP32, FP16, and BF16 performance."""
         logger.info("Running precision comparison...")
 
         # FP32 baseline
@@ -219,12 +217,11 @@ class TensorCoreStressTest:
             bf16_tflops=bf16_tflops,
             fp16_speedup=round(fp16_speedup, 2),
             bf16_speedup=round(bf16_speedup, 2),
-            bf16_vs_fp16=round(bf16_vs_fp16, 2)
+            bf16_vs_fp16=round(bf16_vs_fp16, 2),
         )
 
     def validate_numerical_precision(self, matrix_size: int = 2048) -> NumericalValidation:
-        """
-        Validate numerical precision of FP16 vs BF16 against FP32 reference.
+        """Validate numerical precision of FP16 vs BF16 against FP32 reference.
 
         BF16 has same exponent range as FP32 (better for large values)
         but less mantissa precision than FP16.
@@ -271,18 +268,13 @@ class TensorCoreStressTest:
             bf16_max_error=round(bf16_max, 6),
             fp16_mean_error=round(fp16_mean, 8),
             bf16_mean_error=round(bf16_mean, 8),
-            bf16_better_precision=bf16_mean < fp16_mean
+            bf16_better_precision=bf16_mean < fp16_mean,
         )
 
     def sustained_stress_test(
-        self,
-        duration_minutes: float = 2.0,
-        matrix_size: int = 10240,
-        thermal_limit: int = 85
-    ) -> Dict[str, Any]:
-        """
-        Run sustained Tensor Core stress test with thermal monitoring.
-        """
+        self, duration_minutes: float = 2.0, matrix_size: int = 10240, thermal_limit: int = 85
+    ) -> dict[str, Any]:
+        """Run sustained Tensor Core stress test with thermal monitoring."""
         logger.info(f"Running sustained stress test for {duration_minutes} minutes...")
 
         dtype = torch.bfloat16 if self.bf16_supported else torch.float16
@@ -315,11 +307,9 @@ class TensorCoreStressTest:
                 # Sample every second
                 elapsed = time.time() - start_time
                 if len(samples) < int(elapsed):
-                    samples.append({
-                        "time_sec": round(elapsed, 1),
-                        "temp_c": temp,
-                        "operations": operations
-                    })
+                    samples.append(
+                        {"time_sec": round(elapsed, 1), "temp_c": temp, "operations": operations}
+                    )
 
         except KeyboardInterrupt:
             logger.info("Stress test interrupted")
@@ -332,7 +322,7 @@ class TensorCoreStressTest:
         end_temp = self._get_gpu_temp()
 
         # Calculate sustained TFLOPS
-        flops_per_op = 2 * (matrix_size ** 3)
+        flops_per_op = 2 * (matrix_size**3)
         total_flops = flops_per_op * operations
         sustained_tflops = (total_flops / total_time) / 1e12
 
@@ -344,17 +334,13 @@ class TensorCoreStressTest:
             "end_temp_c": end_temp,
             "max_temp_c": max(s["temp_c"] for s in samples) if samples else 0,
             "thermal_throttled": any(s["temp_c"] > thermal_limit for s in samples),
-            "samples": samples
+            "samples": samples,
         }
 
     def generate_report(
-        self,
-        matrix_size: int = 8192,
-        sustained_minutes: float = 1.0
+        self, matrix_size: int = 8192, sustained_minutes: float = 1.0
     ) -> TensorCoreReport:
-        """
-        Generate complete Tensor Core certification report.
-        """
+        """Generate complete Tensor Core certification report."""
         logger.info("Generating Tensor Core certification report...")
 
         # Collect benchmarks
@@ -398,7 +384,7 @@ class TensorCoreStressTest:
             comparison=comparison,
             validation=validation,
             sustained_test=sustained,
-            certification=certification
+            certification=certification,
         )
 
     def print_report(self, report: TensorCoreReport):
@@ -408,7 +394,7 @@ class TensorCoreStressTest:
         print("  Evidence Suite: Savant Genesis Edition")
         print("=" * 70)
 
-        print(f"\nHardware:")
+        print("\nHardware:")
         print(f"  GPU:           {report.gpu_name}")
         print(f"  CUDA:          {report.cuda_version}")
         print(f"  PyTorch:       {report.torch_version}")
@@ -420,7 +406,9 @@ class TensorCoreStressTest:
         print(f"  {'Precision':<12} {'TFLOPS':<10} {'Latency':<12} {'Memory':<10}")
         print(f"  {'─' * 44}")
         for b in report.benchmarks:
-            print(f"  {b.dtype:<12} {b.tflops:<10.2f} {b.mean_latency_ms:<10.2f}ms {b.memory_used_mb:<8.0f}MB")
+            print(
+                f"  {b.dtype:<12} {b.tflops:<10.2f} {b.mean_latency_ms:<10.2f}ms {b.memory_used_mb:<8.0f}MB"
+            )
 
         if report.comparison:
             c = report.comparison
@@ -466,33 +454,30 @@ class TensorCoreStressTest:
         if report.validation:
             data["validation"] = asdict(report.validation)
 
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(data, f, indent=2)
 
         logger.info(f"Report saved to {output_path}")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="RTX 5090 Tensor Core Stress Test"
-    )
+    parser = argparse.ArgumentParser(description="RTX 5090 Tensor Core Stress Test")
     parser.add_argument(
-        "--matrix-size", "-m",
+        "--matrix-size",
+        "-m",
         type=int,
         default=8192,
-        help="Matrix size for benchmarks (default: 8192)"
+        help="Matrix size for benchmarks (default: 8192)",
     )
     parser.add_argument(
-        "--sustained-minutes", "-s",
+        "--sustained-minutes",
+        "-s",
         type=float,
         default=1.0,
-        help="Sustained test duration in minutes (default: 1.0)"
+        help="Sustained test duration in minutes (default: 1.0)",
     )
     parser.add_argument(
-        "--output", "-o",
-        type=str,
-        default="tensor_core_report.json",
-        help="Output JSON file"
+        "--output", "-o", type=str, default="tensor_core_report.json", help="Output JSON file"
     )
 
     args = parser.parse_args()
@@ -500,8 +485,7 @@ def main():
     try:
         tester = TensorCoreStressTest()
         report = tester.generate_report(
-            matrix_size=args.matrix_size,
-            sustained_minutes=args.sustained_minutes
+            matrix_size=args.matrix_size, sustained_minutes=args.sustained_minutes
         )
         tester.print_report(report)
         tester.save_report(report, args.output)

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Evidence Suite - Pre-Commit Testing Rule
+"""Evidence Suite - Pre-Commit Testing Rule
 Mandatory testing and benchmarking before any commit.
 
 RULE: Any upgrade must test and benchmark metrics.
@@ -13,14 +12,16 @@ before pushing changes. It enforces the following rules:
 3. Benchmark metrics must not regress beyond threshold
 4. Stress tests must pass (optional, configurable)
 """
-import os
-import sys
-import json
-import subprocess
+
 import argparse
-from pathlib import Path
+import json
+import os
+import subprocess
+import sys
 from datetime import datetime
-from typing import Dict, Any, Tuple, Optional
+from pathlib import Path
+from typing import Any
+
 
 # Add parent to path
 SCRIPT_DIR = Path(__file__).parent
@@ -33,23 +34,23 @@ class PreCommitChecker:
 
     # Thresholds for regression detection
     REGRESSION_THRESHOLDS = {
-        "avg_latency_ms": 0.20,      # 20% max increase in latency
+        "avg_latency_ms": 0.20,  # 20% max increase in latency
         "avg_throughput_ops_sec": -0.15,  # 15% max decrease in throughput
-        "avg_success_rate": -0.05,   # 5% max decrease in success rate
+        "avg_success_rate": -0.05,  # 5% max decrease in success rate
     }
 
     def __init__(
         self,
         run_stress: bool = False,
         run_benchmark: bool = True,
-        baseline_file: Optional[str] = None,
+        baseline_file: str | None = None,
         verbose: bool = True,
     ):
         self.run_stress = run_stress
         self.run_benchmark = run_benchmark
         self.baseline_file = baseline_file or str(PROJECT_ROOT / "benchmarks" / "baseline.json")
         self.verbose = verbose
-        self.results: Dict[str, Any] = {}
+        self.results: dict[str, Any] = {}
 
     def log(self, message: str, level: str = "INFO"):
         """Log message if verbose."""
@@ -62,15 +63,16 @@ class PreCommitChecker:
             }.get(level, "[INFO]")
             print(f"{prefix} {message}")
 
-    def run_unit_tests(self) -> Tuple[bool, str]:
+    def run_unit_tests(self) -> tuple[bool, str]:
         """Run unit tests using direct pytest import for reliability."""
         self.log("Running unit tests...")
 
         try:
             # Import pytest directly for more reliable execution
-            import pytest
-            import io
             import contextlib
+            import io
+
+            import pytest
 
             # Capture output
             stdout_capture = io.StringIO()
@@ -82,24 +84,22 @@ class PreCommitChecker:
             try:
                 # Run pytest programmatically
                 with contextlib.redirect_stdout(stdout_capture):
-                    exit_code = pytest.main([
-                        "tests/test_api.py",
-                        "-v", "--tb=short", "-q",
-                        "--no-header"
-                    ])
+                    exit_code = pytest.main(
+                        ["tests/test_api.py", "-v", "--tb=short", "-q", "--no-header"]
+                    )
 
                 stdout = stdout_capture.getvalue()
 
                 # Parse results
                 import re
+
                 if exit_code == 0:
-                    match = re.search(r'(\d+) passed', stdout)
+                    match = re.search(r"(\d+) passed", stdout)
                     passed_count = match.group(1) if match else "all"
                     self.log(f"Unit tests completed with {passed_count} passed", "PASS")
                     return True, stdout
-                else:
-                    self.log(f"Unit tests failed (exit code {exit_code})", "FAIL")
-                    return False, stdout
+                self.log(f"Unit tests failed (exit code {exit_code})", "FAIL")
+                return False, stdout
 
             finally:
                 # Restore environment
@@ -115,13 +115,14 @@ class PreCommitChecker:
             self.log(f"Unit test error: {e}", "FAIL")
             return False, str(e)
 
-    def run_pipeline_test(self) -> Tuple[bool, str]:
+    def run_pipeline_test(self) -> tuple[bool, str]:
         """Run pipeline verification."""
         self.log("Running pipeline verification...")
 
         try:
             result = subprocess.run(
                 [sys.executable, "run_pipeline.py"],
+                check=False,
                 cwd=str(PROJECT_ROOT),
                 capture_output=True,
                 text=True,
@@ -129,15 +130,14 @@ class PreCommitChecker:
             )
 
             # Check for success indicators
-            if "PIPELINE TEST COMPLETE" in result.stdout and "success_rate: 1.0" in result.stdout.lower():
+            if (
+                "PIPELINE TEST COMPLETE" in result.stdout
+                and "success_rate: 1.0" in result.stdout.lower()
+            ) or "PASS" in result.stdout:
                 self.log("Pipeline verification passed", "PASS")
                 return True, result.stdout
-            elif "PASS" in result.stdout:
-                self.log("Pipeline verification passed", "PASS")
-                return True, result.stdout
-            else:
-                self.log("Pipeline verification failed", "FAIL")
-                return False, result.stdout + result.stderr
+            self.log("Pipeline verification failed", "FAIL")
+            return False, result.stdout + result.stderr
 
         except subprocess.TimeoutExpired:
             self.log("Pipeline test timed out", "FAIL")
@@ -146,7 +146,7 @@ class PreCommitChecker:
             self.log(f"Pipeline test error: {e}", "FAIL")
             return False, str(e)
 
-    def run_benchmarks(self) -> Tuple[bool, Dict[str, Any]]:
+    def run_benchmarks(self) -> tuple[bool, dict[str, Any]]:
         """Run benchmarks and check for regressions."""
         if not self.run_benchmark:
             self.log("Skipping benchmarks (disabled)", "WARN")
@@ -165,12 +165,18 @@ class PreCommitChecker:
             # Run benchmark
             result = subprocess.run(
                 [
-                    sys.executable, "tests/benchmark.py",
-                    "-i", "50",  # Reduced iterations for pre-commit
-                    "-w", "3",
-                    "-o", str(output_file),
-                    "-b", self.baseline_file if Path(self.baseline_file).exists() else "",
+                    sys.executable,
+                    "tests/benchmark.py",
+                    "-i",
+                    "50",  # Reduced iterations for pre-commit
+                    "-w",
+                    "3",
+                    "-o",
+                    str(output_file),
+                    "-b",
+                    self.baseline_file if Path(self.baseline_file).exists() else "",
                 ],
+                check=False,
                 cwd=str(PROJECT_ROOT),
                 capture_output=True,
                 text=True,
@@ -193,14 +199,17 @@ class PreCommitChecker:
                         if threshold > 0:
                             # Higher is worse (like latency)
                             if change > threshold:
-                                regressions.append(f"{metric}: {change*100:+.1f}% (threshold: {threshold*100}%)")
-                        else:
-                            # Lower is worse (like throughput)
-                            if change < threshold:
-                                regressions.append(f"{metric}: {change*100:+.1f}% (threshold: {threshold*100}%)")
+                                regressions.append(
+                                    f"{metric}: {change * 100:+.1f}% (threshold: {threshold * 100}%)"
+                                )
+                        # Lower is worse (like throughput)
+                        elif change < threshold:
+                            regressions.append(
+                                f"{metric}: {change * 100:+.1f}% (threshold: {threshold * 100}%)"
+                            )
 
                 if regressions:
-                    self.log(f"Benchmark regressions detected:", "WARN")
+                    self.log("Benchmark regressions detected:", "WARN")
                     for r in regressions:
                         self.log(f"  - {r}", "WARN")
                     # Don't fail, just warn
@@ -218,7 +227,7 @@ class PreCommitChecker:
             self.log(f"Benchmark error: {e}", "WARN")
             return True, {}  # Don't block on benchmark errors
 
-    def run_stress_tests(self) -> Tuple[bool, str]:
+    def run_stress_tests(self) -> tuple[bool, str]:
         """Run stress tests."""
         if not self.run_stress:
             self.log("Skipping stress tests (disabled)", "WARN")
@@ -229,10 +238,14 @@ class PreCommitChecker:
         try:
             result = subprocess.run(
                 [
-                    sys.executable, "tests/stress_test.py",
-                    "-c", "5",  # Reduced concurrency for pre-commit
-                    "-i", "20",  # Reduced iterations
+                    sys.executable,
+                    "tests/stress_test.py",
+                    "-c",
+                    "5",  # Reduced concurrency for pre-commit
+                    "-i",
+                    "20",  # Reduced iterations
                 ],
+                check=False,
                 cwd=str(PROJECT_ROOT),
                 capture_output=True,
                 text=True,
@@ -247,9 +260,8 @@ class PreCommitChecker:
                         if rate >= 90:  # 90% pass rate required
                             self.log(f"Stress tests passed ({rate:.1f}%)", "PASS")
                             return True, result.stdout
-                        else:
-                            self.log(f"Stress tests failed ({rate:.1f}% < 90%)", "FAIL")
-                            return False, result.stdout
+                        self.log(f"Stress tests failed ({rate:.1f}% < 90%)", "FAIL")
+                        return False, result.stdout
 
             self.log("Stress tests completed", "PASS")
             return True, result.stdout
@@ -263,10 +275,10 @@ class PreCommitChecker:
 
     def check_all(self) -> bool:
         """Run all checks and return overall status."""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("EVIDENCE SUITE PRE-COMMIT CHECK")
         print("Rule: Any upgrade must test and benchmark metrics")
-        print("="*60 + "\n")
+        print("=" * 60 + "\n")
 
         all_passed = True
 
@@ -294,15 +306,21 @@ class PreCommitChecker:
                 all_passed = False
 
         # Summary
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("PRE-COMMIT CHECK SUMMARY")
-        print("="*60)
-        print(f"Unit Tests: {'PASS' if self.results.get('unit_tests', {}).get('passed') else 'FAIL'}")
+        print("=" * 60)
+        print(
+            f"Unit Tests: {'PASS' if self.results.get('unit_tests', {}).get('passed') else 'FAIL'}"
+        )
         print(f"Pipeline: {'PASS' if self.results.get('pipeline', {}).get('passed') else 'FAIL'}")
-        print(f"Benchmarks: {'PASS' if self.results.get('benchmarks', {}).get('passed') else 'FAIL'}")
+        print(
+            f"Benchmarks: {'PASS' if self.results.get('benchmarks', {}).get('passed') else 'FAIL'}"
+        )
         if self.run_stress:
-            print(f"Stress Tests: {'PASS' if self.results.get('stress_tests', {}).get('passed') else 'FAIL'}")
-        print("="*60)
+            print(
+                f"Stress Tests: {'PASS' if self.results.get('stress_tests', {}).get('passed') else 'FAIL'}"
+            )
+        print("=" * 60)
 
         if all_passed:
             print("\n[PASS] All checks passed. Safe to commit.\n")
@@ -317,14 +335,12 @@ def main():
     parser = argparse.ArgumentParser(
         description="Pre-commit testing rule: Any upgrade must test and benchmark metrics"
     )
-    parser.add_argument("--stress", action="store_true",
-                        help="Also run stress tests")
-    parser.add_argument("--no-benchmark", action="store_true",
-                        help="Skip benchmarks")
-    parser.add_argument("--baseline", type=str, default=None,
-                        help="Baseline file for benchmark comparison")
-    parser.add_argument("--quiet", action="store_true",
-                        help="Reduce output verbosity")
+    parser.add_argument("--stress", action="store_true", help="Also run stress tests")
+    parser.add_argument("--no-benchmark", action="store_true", help="Skip benchmarks")
+    parser.add_argument(
+        "--baseline", type=str, default=None, help="Baseline file for benchmark comparison"
+    )
+    parser.add_argument("--quiet", action="store_true", help="Reduce output verbosity")
 
     args = parser.parse_args()
 

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""
-Evidence Suite - Git Hooks Installer
+"""Evidence Suite - Git Hooks Installer
 Installs pre-commit hooks for mandatory testing.
 """
+
 import os
-import sys
 import stat
 from pathlib import Path
+
 
 PROJECT_ROOT = Path(__file__).parent.parent
 GIT_DIR = PROJECT_ROOT / ".git"
 HOOKS_DIR = GIT_DIR / "hooks"
 
-PRE_COMMIT_HOOK = '''#!/bin/sh
+PRE_COMMIT_HOOK = """#!/bin/sh
 # Evidence Suite Pre-Commit Hook
 # Rule: Any upgrade must test and benchmark metrics
 
@@ -30,9 +30,9 @@ fi
 
 echo "Pre-commit checks passed!"
 exit 0
-'''
+"""
 
-PRE_PUSH_HOOK = '''#!/bin/sh
+PRE_PUSH_HOOK = """#!/bin/sh
 # Evidence Suite Pre-Push Hook
 # Runs full benchmark before push
 
@@ -50,7 +50,7 @@ fi
 
 echo "Pre-push checks passed!"
 exit 0
-'''
+"""
 
 
 def install_hooks():
@@ -63,11 +63,11 @@ def install_hooks():
 
     # Install pre-commit hook
     pre_commit_path = HOOKS_DIR / "pre-commit"
-    with open(pre_commit_path, "w", newline='\n') as f:
+    with open(pre_commit_path, "w", newline="\n") as f:
         f.write(PRE_COMMIT_HOOK)
 
     # Make executable (Unix)
-    if os.name != 'nt':
+    if os.name != "nt":
         st = os.stat(pre_commit_path)
         os.chmod(pre_commit_path, st.st_mode | stat.S_IEXEC)
 
@@ -75,10 +75,10 @@ def install_hooks():
 
     # Install pre-push hook
     pre_push_path = HOOKS_DIR / "pre-push"
-    with open(pre_push_path, "w", newline='\n') as f:
+    with open(pre_push_path, "w", newline="\n") as f:
         f.write(PRE_PUSH_HOOK)
 
-    if os.name != 'nt':
+    if os.name != "nt":
         st = os.stat(pre_push_path)
         os.chmod(pre_push_path, st.st_mode | stat.S_IEXEC)
 

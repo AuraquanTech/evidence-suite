@@ -1,25 +1,21 @@
-"""
-Evidence Suite - Fusion Agent
+"""Evidence Suite - Fusion Agent
 Hybrid late fusion of multi-modal analysis results.
 """
-from __future__ import annotations
-from typing import Any, Dict, List, Optional, Tuple
-from loguru import logger
-import numpy as np
 
-from core.models import (
-    EvidencePacket,
-    AnalysisResult,
-    ProcessingStage,
-    BehavioralIndicators
-)
-from core.config import FusionConfig, default_config
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+from loguru import logger
+
 from agents.base import BaseAgent
+from core.config import FusionConfig, default_config
+from core.models import AnalysisResult, BehavioralIndicators, EvidencePacket, ProcessingStage
 
 
 class FusionAgent(BaseAgent):
-    """
-    Fusion layer agent for combining multi-modal analysis results.
+    """Fusion layer agent for combining multi-modal analysis results.
 
     Features:
     - Hybrid late fusion strategy
@@ -29,29 +25,20 @@ class FusionAgent(BaseAgent):
     - Anomaly detection via disagreement analysis
     """
 
-    def __init__(
-        self,
-        agent_id: Optional[str] = None,
-        config: Optional[FusionConfig] = None
-    ):
+    def __init__(self, agent_id: str | None = None, config: FusionConfig | None = None):
         super().__init__(
             agent_id=agent_id,
             agent_type="fusion",
-            config=(config or default_config.fusion).model_dump()
+            config=(config or default_config.fusion).model_dump(),
         )
         self.fusion_config = config or default_config.fusion
 
     async def _setup(self) -> None:
         """Initialize fusion weights and thresholds."""
-        logger.info(
-            f"Fusion agent initialized with strategy: "
-            f"{self.fusion_config.strategy}"
-        )
+        logger.info(f"Fusion agent initialized with strategy: {self.fusion_config.strategy}")
 
     async def _process_impl(self, packet: EvidencePacket) -> EvidencePacket:
-        """
-        Fuse all analysis results into a unified assessment.
-        """
+        """Fuse all analysis results into a unified assessment."""
         if not packet.analysis_results:
             raise ValueError("No analysis results to fuse")
 
@@ -75,9 +62,7 @@ class FusionAgent(BaseAgent):
         anomalies = self._detect_anomalies(results_by_type)
 
         # Calculate final confidence
-        confidence = self._calculate_fusion_confidence(
-            fused, consistency, results_by_type
-        )
+        confidence = self._calculate_fusion_confidence(fused, consistency, results_by_type)
 
         # Create analysis result
         analysis = AnalysisResult(
@@ -91,8 +76,8 @@ class FusionAgent(BaseAgent):
                 "consistency_details": consistency["details"],
                 "anomalies": anomalies,
                 "agents_fused": list(results_by_type.keys()),
-                "fusion_strategy": self.fusion_config.strategy
-            }
+                "fusion_strategy": self.fusion_config.strategy,
+            },
         )
 
         return packet.with_updates(
@@ -101,16 +86,15 @@ class FusionAgent(BaseAgent):
             fusion_metadata={
                 "consistency": consistency,
                 "anomalies": anomalies,
-                "weights_used": fused.get("weights", {})
+                "weights_used": fused.get("weights", {}),
             },
             stage=ProcessingStage.FUSED,
-            analysis_results=packet.analysis_results + [analysis]
+            analysis_results=packet.analysis_results + [analysis],
         )
 
     def _group_results_by_type(
-        self,
-        results: List[AnalysisResult]
-    ) -> Dict[str, List[AnalysisResult]]:
+        self, results: list[AnalysisResult]
+    ) -> dict[str, list[AnalysisResult]]:
         """Group analysis results by agent type."""
         grouped = {}
         for result in results:
@@ -120,12 +104,9 @@ class FusionAgent(BaseAgent):
         return grouped
 
     def _hybrid_late_fusion(
-        self,
-        packet: EvidencePacket,
-        results_by_type: Dict[str, List[AnalysisResult]]
-    ) -> Dict[str, Any]:
-        """
-        Hybrid late fusion strategy.
+        self, packet: EvidencePacket, results_by_type: dict[str, list[AnalysisResult]]
+    ) -> dict[str, Any]:
+        """Hybrid late fusion strategy.
 
         Combines:
         1. OCR confidence as quality gate
@@ -142,7 +123,7 @@ class FusionAgent(BaseAgent):
             return {
                 "score": ocr_confidence * 0.5,
                 "classification": "insufficient_data",
-                "weights": {"ocr": 1.0}
+                "weights": {"ocr": 1.0},
             }
 
         # Calculate behavioral severity score
@@ -152,32 +133,23 @@ class FusionAgent(BaseAgent):
         # Primary weight on behavioral, modulated by OCR quality
         ocr_quality_factor = min(1.0, ocr_confidence + 0.2)
 
-        fused_score = (
-            alpha * behavioral_severity * ocr_quality_factor +
-            (1 - alpha) * self._aggregate_result_confidences(results_by_type)
-        )
+        fused_score = alpha * behavioral_severity * ocr_quality_factor + (
+            1 - alpha
+        ) * self._aggregate_result_confidences(results_by_type)
 
         # Determine classification
-        classification = self._determine_classification(
-            behavioral, fused_score
-        )
+        classification = self._determine_classification(behavioral, fused_score)
 
         return {
             "score": fused_score,
             "classification": classification,
-            "weights": {
-                "behavioral": alpha * ocr_quality_factor,
-                "confidence": 1 - alpha
-            }
+            "weights": {"behavioral": alpha * ocr_quality_factor, "confidence": 1 - alpha},
         }
 
     def _weighted_average_fusion(
-        self,
-        results_by_type: Dict[str, List[AnalysisResult]]
-    ) -> Dict[str, Any]:
-        """
-        Simple weighted average fusion based on confidence scores.
-        """
+        self, results_by_type: dict[str, list[AnalysisResult]]
+    ) -> dict[str, Any]:
+        """Simple weighted average fusion based on confidence scores."""
         weights = []
         scores = []
 
@@ -202,15 +174,11 @@ class FusionAgent(BaseAgent):
         return {
             "score": float(fused_score),
             "classification": self._score_to_classification(fused_score),
-            "weights": {t: 1.0 / len(results_by_type) for t in results_by_type}
+            "weights": {t: 1.0 / len(results_by_type) for t in results_by_type},
         }
 
-    def _attention_fusion(
-        self,
-        results_by_type: Dict[str, List[AnalysisResult]]
-    ) -> Dict[str, Any]:
-        """
-        Attention-based fusion (simplified without learned attention).
+    def _attention_fusion(self, results_by_type: dict[str, list[AnalysisResult]]) -> dict[str, Any]:
+        """Attention-based fusion (simplified without learned attention).
 
         Uses self-critique scores to determine attention weights.
         """
@@ -236,38 +204,32 @@ class FusionAgent(BaseAgent):
         value_array = np.array(list(values.values()))
         fused_score = float(np.dot(softmax_attn, value_array))
 
-        weights = {
-            t: float(softmax_attn[i])
-            for i, t in enumerate(attention_scores.keys())
-        }
+        weights = {t: float(softmax_attn[i]) for i, t in enumerate(attention_scores.keys())}
 
         return {
             "score": fused_score,
             "classification": self._score_to_classification(fused_score),
-            "weights": weights
+            "weights": weights,
         }
 
-    def _calculate_behavioral_severity(
-        self,
-        indicators: BehavioralIndicators
-    ) -> float:
-        """
-        Calculate overall behavioral severity score.
-        """
+    def _calculate_behavioral_severity(self, indicators: BehavioralIndicators) -> float:
+        """Calculate overall behavioral severity score."""
         # Weighted combination of behavioral indicators
         severity = (
-            indicators.darvo_score * 0.3 +
-            indicators.gaslighting_score * 0.3 +
-            indicators.manipulation_score * 0.25 +
-            indicators.deception_indicators * 0.15
+            indicators.darvo_score * 0.3
+            + indicators.gaslighting_score * 0.3
+            + indicators.manipulation_score * 0.25
+            + indicators.deception_indicators * 0.15
         )
 
         # Boost if multiple patterns co-occur
-        pattern_count = sum([
-            1 if indicators.darvo_score > 0.3 else 0,
-            1 if indicators.gaslighting_score > 0.3 else 0,
-            1 if indicators.manipulation_score > 0.3 else 0
-        ])
+        pattern_count = sum(
+            [
+                1 if indicators.darvo_score > 0.3 else 0,
+                1 if indicators.gaslighting_score > 0.3 else 0,
+                1 if indicators.manipulation_score > 0.3 else 0,
+            ]
+        )
 
         if pattern_count >= 2:
             severity = min(1.0, severity * 1.2)
@@ -275,8 +237,7 @@ class FusionAgent(BaseAgent):
         return severity
 
     def _aggregate_result_confidences(
-        self,
-        results_by_type: Dict[str, List[AnalysisResult]]
+        self, results_by_type: dict[str, list[AnalysisResult]]
     ) -> float:
         """Aggregate all result confidences."""
         all_confidences = []
@@ -288,13 +249,9 @@ class FusionAgent(BaseAgent):
         return np.mean(all_confidences) if all_confidences else 0.5
 
     def _determine_classification(
-        self,
-        indicators: BehavioralIndicators,
-        fused_score: float
+        self, indicators: BehavioralIndicators, fused_score: float
     ) -> str:
-        """
-        Determine the final classification based on indicators and score.
-        """
+        """Determine the final classification based on indicators and score."""
         # If we have behavior probabilities, use the highest
         if indicators.behavior_probabilities:
             probs = indicators.behavior_probabilities
@@ -305,35 +262,30 @@ class FusionAgent(BaseAgent):
         # Fall back to threshold-based classification
         if fused_score < 0.2:
             return "low_concern"
-        elif fused_score < 0.4:
+        if fused_score < 0.4:
             return "moderate_concern"
-        elif fused_score < 0.6:
+        if fused_score < 0.6:
             return "elevated_concern"
-        elif fused_score < 0.8:
+        if fused_score < 0.8:
             return "high_concern"
-        else:
-            return "critical_concern"
+        return "critical_concern"
 
     def _score_to_classification(self, score: float) -> str:
         """Convert numeric score to classification label."""
         if score < 0.2:
             return "low"
-        elif score < 0.4:
+        if score < 0.4:
             return "moderate"
-        elif score < 0.6:
+        if score < 0.6:
             return "elevated"
-        elif score < 0.8:
+        if score < 0.8:
             return "high"
-        else:
-            return "critical"
+        return "critical"
 
     def _check_cross_modal_consistency(
-        self,
-        results_by_type: Dict[str, List[AnalysisResult]]
-    ) -> Dict[str, Any]:
-        """
-        Check consistency across different modalities/agents.
-        """
+        self, results_by_type: dict[str, list[AnalysisResult]]
+    ) -> dict[str, Any]:
+        """Check consistency across different modalities/agents."""
         confidences_by_type = {}
         for agent_type, results in results_by_type.items():
             confs = [r.confidence for r in results if r.is_successful]
@@ -363,38 +315,35 @@ class FusionAgent(BaseAgent):
                 "variance": float(variance),
                 "mean_confidence": float(mean_conf),
                 "outliers": outliers,
-                "per_type": confidences_by_type
-            }
+                "per_type": confidences_by_type,
+            },
         }
 
     def _detect_anomalies(
-        self,
-        results_by_type: Dict[str, List[AnalysisResult]]
-    ) -> List[Dict[str, Any]]:
-        """
-        Detect anomalies in the analysis results.
-        """
+        self, results_by_type: dict[str, list[AnalysisResult]]
+    ) -> list[dict[str, Any]]:
+        """Detect anomalies in the analysis results."""
         anomalies = []
 
         # Check for errors
         for agent_type, results in results_by_type.items():
             for result in results:
                 if result.errors:
-                    anomalies.append({
-                        "type": "processing_error",
-                        "agent": agent_type,
-                        "details": result.errors
-                    })
+                    anomalies.append(
+                        {"type": "processing_error", "agent": agent_type, "details": result.errors}
+                    )
 
         # Check for very low confidence
         for agent_type, results in results_by_type.items():
             for result in results:
                 if result.confidence < 0.3 and result.is_successful:
-                    anomalies.append({
-                        "type": "low_confidence",
-                        "agent": agent_type,
-                        "confidence": result.confidence
-                    })
+                    anomalies.append(
+                        {
+                            "type": "low_confidence",
+                            "agent": agent_type,
+                            "confidence": result.confidence,
+                        }
+                    )
 
         # Check for conflicting classifications
         # (Would need access to individual classifications)
@@ -403,13 +352,11 @@ class FusionAgent(BaseAgent):
 
     def _calculate_fusion_confidence(
         self,
-        fused: Dict[str, Any],
-        consistency: Dict[str, Any],
-        results_by_type: Dict[str, List[AnalysisResult]]
+        fused: dict[str, Any],
+        consistency: dict[str, Any],
+        results_by_type: dict[str, list[AnalysisResult]],
     ) -> float:
-        """
-        Calculate confidence in the fusion result.
-        """
+        """Calculate confidence in the fusion result."""
         # Base from fused score distance from ambiguity
         base = 0.5 + abs(fused["score"] - 0.5)
 
@@ -424,9 +371,7 @@ class FusionAgent(BaseAgent):
         return min(1.0, confidence)
 
     async def self_critique(self, result: AnalysisResult) -> float:
-        """
-        Self-critique fusion quality.
-        """
+        """Self-critique fusion quality."""
         if not result.is_successful:
             return 0.0
 

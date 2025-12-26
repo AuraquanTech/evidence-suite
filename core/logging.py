@@ -1,26 +1,27 @@
-"""
-Evidence Suite - Comprehensive Logging System
+"""Evidence Suite - Comprehensive Logging System
 Structured logging with monitoring, metrics, and audit trails.
 """
-import os
-import sys
+
 import json
-import time
 import logging
-import traceback
+import sys
+import threading
+import time
+from collections import defaultdict
+from collections.abc import Callable
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Callable
+from enum import Enum
 from functools import wraps
 from pathlib import Path
-from contextlib import contextmanager
-from dataclasses import dataclass, field, asdict
-from enum import Enum
-import threading
-from collections import defaultdict
+from typing import Any
+
 
 # Use loguru for enhanced logging if available
 try:
     from loguru import logger as loguru_logger
+
     HAS_LOGURU = True
 except ImportError:
     HAS_LOGURU = False
@@ -29,6 +30,7 @@ except ImportError:
 
 class LogLevel(Enum):
     """Log levels with numeric values."""
+
     DEBUG = 10
     INFO = 20
     WARNING = 30
@@ -40,19 +42,20 @@ class LogLevel(Enum):
 @dataclass
 class LogEntry:
     """Structured log entry."""
+
     timestamp: str
     level: str
     message: str
     module: str
     function: str
     line: int
-    extra: Dict[str, Any] = field(default_factory=dict)
-    trace_id: Optional[str] = None
-    span_id: Optional[str] = None
-    duration_ms: Optional[float] = None
-    error: Optional[Dict[str, Any]] = None
+    extra: dict[str, Any] = field(default_factory=dict)
+    trace_id: str | None = None
+    span_id: str | None = None
+    duration_ms: float | None = None
+    error: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {k: v for k, v in asdict(self).items() if v is not None}
 
@@ -64,36 +67,37 @@ class LogEntry:
 @dataclass
 class MetricEntry:
     """Performance metric entry."""
+
     name: str
     value: float
     unit: str
     timestamp: str
-    tags: Dict[str, str] = field(default_factory=dict)
+    tags: dict[str, str] = field(default_factory=dict)
 
 
 class MetricsCollector:
     """Collect and aggregate metrics."""
 
     def __init__(self):
-        self._counters: Dict[str, int] = defaultdict(int)
-        self._gauges: Dict[str, float] = {}
-        self._histograms: Dict[str, List[float]] = defaultdict(list)
+        self._counters: dict[str, int] = defaultdict(int)
+        self._gauges: dict[str, float] = {}
+        self._histograms: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
         self._start_time = time.time()
 
-    def increment(self, name: str, value: int = 1, tags: Optional[Dict[str, str]] = None):
+    def increment(self, name: str, value: int = 1, tags: dict[str, str] | None = None):
         """Increment a counter."""
         key = self._make_key(name, tags)
         with self._lock:
             self._counters[key] += value
 
-    def gauge(self, name: str, value: float, tags: Optional[Dict[str, str]] = None):
+    def gauge(self, name: str, value: float, tags: dict[str, str] | None = None):
         """Set a gauge value."""
         key = self._make_key(name, tags)
         with self._lock:
             self._gauges[key] = value
 
-    def histogram(self, name: str, value: float, tags: Optional[Dict[str, str]] = None):
+    def histogram(self, name: str, value: float, tags: dict[str, str] | None = None):
         """Record a histogram value."""
         key = self._make_key(name, tags)
         with self._lock:
@@ -102,14 +106,14 @@ class MetricsCollector:
             if len(self._histograms[key]) > 1000:
                 self._histograms[key] = self._histograms[key][-1000:]
 
-    def _make_key(self, name: str, tags: Optional[Dict[str, str]] = None) -> str:
+    def _make_key(self, name: str, tags: dict[str, str] | None = None) -> str:
         """Create metric key with tags."""
         if tags:
             tag_str = ",".join(f"{k}={v}" for k, v in sorted(tags.items()))
             return f"{name}{{{tag_str}}}"
         return name
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get all metrics statistics."""
         with self._lock:
             stats = {
@@ -141,7 +145,7 @@ class EvidenceSuiteLogger:
     def __init__(
         self,
         name: str = "evidence-suite",
-        log_dir: Optional[str] = None,
+        log_dir: str | None = None,
         log_level: str = "INFO",
         json_format: bool = True,
         enable_console: bool = True,
@@ -152,8 +156,8 @@ class EvidenceSuiteLogger:
         self.log_level = getattr(logging, log_level.upper(), logging.INFO)
         self.json_format = json_format
         self.metrics = MetricsCollector()
-        self._trace_id: Optional[str] = None
-        self._span_id: Optional[str] = None
+        self._trace_id: str | None = None
+        self._span_id: str | None = None
 
         # Create log directory
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -238,7 +242,7 @@ class EvidenceSuiteLogger:
             file_handler.setFormatter(formatter)
             self._logger.addHandler(file_handler)
 
-    def set_trace_context(self, trace_id: str, span_id: Optional[str] = None):
+    def set_trace_context(self, trace_id: str, span_id: str | None = None):
         """Set trace context for distributed tracing."""
         self._trace_id = trace_id
         self._span_id = span_id
@@ -252,7 +256,7 @@ class EvidenceSuiteLogger:
         self,
         level: str,
         message: str,
-        extra: Optional[Dict[str, Any]] = None,
+        extra: dict[str, Any] | None = None,
         exc_info: bool = False,
     ):
         """Internal log method."""
@@ -308,7 +312,7 @@ class EvidenceSuiteLogger:
         self.metrics.increment(f"audit.{action}")
 
     @contextmanager
-    def timer(self, name: str, tags: Optional[Dict[str, str]] = None):
+    def timer(self, name: str, tags: dict[str, str] | None = None):
         """Context manager for timing operations."""
         start = time.perf_counter()
         try:
@@ -318,8 +322,9 @@ class EvidenceSuiteLogger:
             self.metrics.histogram(f"{name}.duration_ms", duration_ms, tags)
             self.debug(f"Timer {name}: {duration_ms:.2f}ms", tags=tags)
 
-    def timed(self, name: Optional[str] = None):
+    def timed(self, name: str | None = None):
         """Decorator for timing functions."""
+
         def decorator(func: Callable):
             metric_name = name or f"{func.__module__}.{func.__name__}"
 
@@ -330,7 +335,7 @@ class EvidenceSuiteLogger:
                     result = func(*args, **kwargs)
                     self.metrics.increment(f"{metric_name}.success")
                     return result
-                except Exception as e:
+                except Exception:
                     self.metrics.increment(f"{metric_name}.error")
                     raise
                 finally:
@@ -344,7 +349,7 @@ class EvidenceSuiteLogger:
                     result = await func(*args, **kwargs)
                     self.metrics.increment(f"{metric_name}.success")
                     return result
-                except Exception as e:
+                except Exception:
                     self.metrics.increment(f"{metric_name}.error")
                     raise
                 finally:
@@ -352,6 +357,7 @@ class EvidenceSuiteLogger:
                     self.metrics.histogram(f"{metric_name}.duration_ms", duration_ms)
 
             import asyncio
+
             if asyncio.iscoroutinefunction(func):
                 return async_wrapper
             return sync_wrapper
@@ -364,7 +370,7 @@ class EvidenceSuiteLogger:
         agent_type: str,
         duration_ms: float,
         success: bool,
-        result_size: Optional[int] = None,
+        result_size: int | None = None,
     ):
         """Record analysis metrics."""
         tags = {"agent": agent_type, "status": "success" if success else "error"}
@@ -390,13 +396,13 @@ class EvidenceSuiteLogger:
         self.metrics.increment(f"http.requests.{status_code}")
         self.metrics.increment("http.requests.total")
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """Get all metrics."""
         return self.metrics.get_stats()
 
 
 # Global logger instance
-_logger: Optional[EvidenceSuiteLogger] = None
+_logger: EvidenceSuiteLogger | None = None
 
 
 def get_logger() -> EvidenceSuiteLogger:
@@ -408,7 +414,7 @@ def get_logger() -> EvidenceSuiteLogger:
 
 
 def configure_logging(
-    log_dir: Optional[str] = None,
+    log_dir: str | None = None,
     log_level: str = "INFO",
     json_format: bool = True,
 ) -> EvidenceSuiteLogger:

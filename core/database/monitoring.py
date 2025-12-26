@@ -1,33 +1,35 @@
-"""
-Evidence Suite - Database Connection Pool Monitoring
+"""Evidence Suite - Database Connection Pool Monitoring
 Tracks pool usage, query performance, and connection health.
 """
-import time
+
 import asyncio
-from datetime import datetime
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, field
+import time
 from collections import deque
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
 
-from sqlalchemy import event, text
-from sqlalchemy.pool import Pool
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.pool import Pool
 
 
 @dataclass
 class QueryMetrics:
     """Metrics for a single query."""
+
     query: str
     duration_ms: float
     timestamp: datetime
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
 class PoolMetrics:
     """Connection pool metrics snapshot."""
+
     timestamp: datetime
     pool_size: int
     checked_in: int
@@ -45,8 +47,7 @@ class PoolMetrics:
 
 
 class DatabaseMonitor:
-    """
-    Monitors database connection pool and query performance.
+    """Monitors database connection pool and query performance.
 
     Tracks:
     - Connection pool utilization
@@ -55,11 +56,7 @@ class DatabaseMonitor:
     - Connection errors
     """
 
-    def __init__(
-        self,
-        slow_query_threshold_ms: float = 100.0,
-        max_history: int = 1000
-    ):
+    def __init__(self, slow_query_threshold_ms: float = 100.0, max_history: int = 1000):
         self.slow_query_threshold_ms = slow_query_threshold_ms
         self.max_history = max_history
 
@@ -75,14 +72,10 @@ class DatabaseMonitor:
         self._total_slow_queries = 0
 
         # Current state
-        self._active_queries: Dict[int, float] = {}
+        self._active_queries: dict[int, float] = {}
 
     def record_query(
-        self,
-        query: str,
-        duration_ms: float,
-        success: bool = True,
-        error: Optional[str] = None
+        self, query: str, duration_ms: float, success: bool = True, error: str | None = None
     ):
         """Record a query execution."""
         metrics = QueryMetrics(
@@ -90,7 +83,7 @@ class DatabaseMonitor:
             duration_ms=duration_ms,
             timestamp=datetime.utcnow(),
             success=success,
-            error=error
+            error=error,
         )
 
         self._query_history.append(metrics)
@@ -112,11 +105,11 @@ class DatabaseMonitor:
             checked_in=pool.checkedin(),
             checked_out=pool.checkedout(),
             overflow=pool.overflow(),
-            invalid=pool.invalidatedcount() if hasattr(pool, 'invalidatedcount') else 0
+            invalid=pool.invalidatedcount() if hasattr(pool, "invalidatedcount") else 0,
         )
         self._pool_snapshots.append(snapshot)
 
-    def get_pool_stats(self) -> Dict[str, Any]:
+    def get_pool_stats(self) -> dict[str, Any]:
         """Get current pool statistics."""
         if not self._pool_snapshots:
             return {"status": "no_data"}
@@ -129,10 +122,10 @@ class DatabaseMonitor:
             "connections_available": latest.checked_in,
             "overflow_connections": latest.overflow,
             "utilization_percent": round(latest.utilization, 2),
-            "invalid_connections": latest.invalid
+            "invalid_connections": latest.invalid,
         }
 
-    def get_query_stats(self) -> Dict[str, Any]:
+    def get_query_stats(self) -> dict[str, Any]:
         """Get query performance statistics."""
         if not self._query_history:
             return {
@@ -145,43 +138,43 @@ class DatabaseMonitor:
         latencies = [q.duration_ms for q in recent if q.success]
 
         avg_latency = sum(latencies) / len(latencies) if latencies else 0
-        p95_latency = sorted(latencies)[int(len(latencies) * 0.95)] if len(latencies) > 20 else avg_latency
+        p95_latency = (
+            sorted(latencies)[int(len(latencies) * 0.95)] if len(latencies) > 20 else avg_latency
+        )
 
         return {
             "total_queries": self._total_queries,
             "total_errors": self._total_errors,
             "total_slow_queries": self._total_slow_queries,
-            "error_rate_percent": round((self._total_errors / max(self._total_queries, 1)) * 100, 2),
+            "error_rate_percent": round(
+                (self._total_errors / max(self._total_queries, 1)) * 100, 2
+            ),
             "avg_latency_ms": round(avg_latency, 2),
             "p95_latency_ms": round(p95_latency, 2),
-            "slow_query_threshold_ms": self.slow_query_threshold_ms
+            "slow_query_threshold_ms": self.slow_query_threshold_ms,
         }
 
-    def get_slow_queries(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_slow_queries(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get recent slow queries."""
         queries = list(self._slow_queries)[-limit:]
         return [
             {
                 "query": q.query,
                 "duration_ms": round(q.duration_ms, 2),
-                "timestamp": q.timestamp.isoformat()
+                "timestamp": q.timestamp.isoformat(),
             }
             for q in queries
         ]
 
-    def get_errors(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_errors(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get recent errors."""
         errors = list(self._errors)[-limit:]
         return [
-            {
-                "query": e.query,
-                "error": e.error,
-                "timestamp": e.timestamp.isoformat()
-            }
+            {"query": e.query, "error": e.error, "timestamp": e.timestamp.isoformat()}
             for e in errors
         ]
 
-    def get_health(self) -> Dict[str, Any]:
+    def get_health(self) -> dict[str, Any]:
         """Get overall database health status."""
         pool_stats = self.get_pool_stats()
         query_stats = self.get_query_stats()
@@ -203,12 +196,7 @@ class DatabaseMonitor:
                 status = "warning"
             warnings.append("High query latency")
 
-        return {
-            "status": status,
-            "warnings": warnings,
-            "pool": pool_stats,
-            "queries": query_stats
-        }
+        return {"status": status, "warnings": warnings, "pool": pool_stats, "queries": query_stats}
 
     def reset_stats(self):
         """Reset all statistics."""
@@ -222,7 +210,7 @@ class DatabaseMonitor:
 
 
 # Global monitor instance
-_monitor: Optional[DatabaseMonitor] = None
+_monitor: DatabaseMonitor | None = None
 
 
 def get_monitor() -> DatabaseMonitor:
@@ -252,10 +240,7 @@ async def monitored_session(session: AsyncSession):
         # Record error
         duration_ms = (time.perf_counter() - start_time) * 1000
         monitor.record_query(
-            query_info.get("last_query", "unknown"),
-            duration_ms,
-            success=False,
-            error=str(e)
+            query_info.get("last_query", "unknown"), duration_ms, success=False, error=str(e)
         )
         raise
 
@@ -267,7 +252,7 @@ def setup_pool_monitoring(engine):
     @event.listens_for(engine.sync_engine.pool, "checkout")
     def on_checkout(dbapi_conn, connection_record, connection_proxy):
         """Called when a connection is checked out from pool."""
-        if hasattr(engine.sync_engine, 'pool'):
+        if hasattr(engine.sync_engine, "pool"):
             monitor.record_pool_snapshot(engine.sync_engine.pool)
 
     @event.listens_for(engine.sync_engine.pool, "checkin")
@@ -282,7 +267,7 @@ def setup_pool_monitoring(engine):
             "CONNECTION_INVALIDATED",
             0,
             success=False,
-            error=str(exception) if exception else "Unknown"
+            error=str(exception) if exception else "Unknown",
         )
 
 
@@ -292,7 +277,7 @@ async def start_monitoring_task(engine, interval_seconds: int = 60):
 
     while True:
         try:
-            if hasattr(engine, 'sync_engine') and hasattr(engine.sync_engine, 'pool'):
+            if hasattr(engine, "sync_engine") and hasattr(engine.sync_engine, "pool"):
                 monitor.record_pool_snapshot(engine.sync_engine.pool)
         except Exception:
             pass  # Don't crash on monitoring errors

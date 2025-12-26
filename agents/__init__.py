@@ -1,18 +1,20 @@
 """Evidence Suite Agents Module"""
-from .base import BaseAgent
-from .ocr_agent import OCRAgent
-from .behavioral_agent import BehavioralAgent
-from .fusion_agent import FusionAgent
+
 from .audio_agent import AudioAgent, AudioConfig
+from .base import BaseAgent
+from .behavioral_agent import BehavioralAgent
 from .email_agent import EmailAgent, EmailConfig
+from .fusion_agent import FusionAgent
+from .ocr_agent import OCRAgent
+
 
 __all__ = [
-    "BaseAgent",
-    "OCRAgent",
-    "BehavioralAgent",
-    "FusionAgent",
     "AudioAgent",
     "AudioConfig",
+    "BaseAgent",
+    "BehavioralAgent",
     "EmailAgent",
     "EmailConfig",
+    "FusionAgent",
+    "OCRAgent",
 ]

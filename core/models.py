@@ -1,18 +1,21 @@
-"""
-Evidence Suite - Core Data Models
+"""Evidence Suite - Core Data Models
 Implements FRE 707-compliant evidence handling with chain of custody tracking.
 """
+
 from __future__ import annotations
+
 import hashlib
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, Field, computed_field
 
 
 class EvidenceType(str, Enum):
     """Types of evidence that can be processed."""
+
     TEXT = "text"
     IMAGE = "image"
     AUDIO = "audio"
@@ -23,6 +26,7 @@ class EvidenceType(str, Enum):
 
 class ProcessingStage(str, Enum):
     """Pipeline processing stages."""
+
     RAW = "raw"
     OCR_PROCESSED = "ocr_processed"
     BEHAVIORAL_ANALYZED = "behavioral_analyzed"
@@ -32,12 +36,13 @@ class ProcessingStage(str, Enum):
 
 class ChainOfCustodyEntry(BaseModel):
     """Single entry in the chain of custody log."""
+
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     agent_id: str
     action: str
     input_hash: str
     output_hash: str
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_verification_string(self) -> str:
         """Create string for hash verification."""
@@ -45,12 +50,12 @@ class ChainOfCustodyEntry(BaseModel):
 
 
 class ChainOfCustody(BaseModel):
-    """
-    FRE 707-compliant chain of custody tracker.
+    """FRE 707-compliant chain of custody tracker.
     Maintains SHA-256 hashes at each processing step.
     """
+
     evidence_id: str
-    entries: List[ChainOfCustodyEntry] = Field(default_factory=list)
+    entries: list[ChainOfCustodyEntry] = Field(default_factory=list)
 
     def add_entry(
         self,
@@ -58,7 +63,7 @@ class ChainOfCustody(BaseModel):
         action: str,
         input_data: Any,
         output_data: Any,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None,
     ) -> ChainOfCustodyEntry:
         """Add a new entry to the chain of custody."""
         input_hash = self._compute_hash(input_data)
@@ -69,7 +74,7 @@ class ChainOfCustody(BaseModel):
             action=action,
             input_hash=input_hash,
             output_hash=output_hash,
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
         self.entries.append(entry)
         return entry
@@ -81,7 +86,7 @@ class ChainOfCustody(BaseModel):
 
         for i in range(1, len(self.entries)):
             # Each input should match the previous output
-            if self.entries[i].input_hash != self.entries[i-1].output_hash:
+            if self.entries[i].input_hash != self.entries[i - 1].output_hash:
                 return False
         return True
 
@@ -91,9 +96,9 @@ class ChainOfCustody(BaseModel):
         if isinstance(data, bytes):
             content = data
         elif isinstance(data, str):
-            content = data.encode('utf-8')
+            content = data.encode("utf-8")
         else:
-            content = str(data).encode('utf-8')
+            content = str(data).encode("utf-8")
         return hashlib.sha256(content).hexdigest()
 
     @computed_field
@@ -106,13 +111,14 @@ class ChainOfCustody(BaseModel):
 
 class AnalysisResult(BaseModel):
     """Result from a single agent's analysis."""
+
     agent_id: str
     agent_type: str
     confidence: float = Field(ge=0.0, le=1.0)
-    findings: Dict[str, Any] = Field(default_factory=dict)
-    raw_output: Optional[Any] = None
+    findings: dict[str, Any] = Field(default_factory=dict)
+    raw_output: Any | None = None
     processing_time_ms: float = 0.0
-    errors: List[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
 
     @property
     def is_successful(self) -> bool:
@@ -121,6 +127,7 @@ class AnalysisResult(BaseModel):
 
 class BehavioralIndicators(BaseModel):
     """Behavioral analysis indicators for forensic assessment."""
+
     # Sentiment scores
     sentiment_compound: float = 0.0
     sentiment_positive: float = 0.0
@@ -139,41 +146,41 @@ class BehavioralIndicators(BaseModel):
     emotional_intensity: float = 0.0
 
     # Classification
-    primary_behavior_class: Optional[str] = None
-    behavior_probabilities: Dict[str, float] = Field(default_factory=dict)
+    primary_behavior_class: str | None = None
+    behavior_probabilities: dict[str, float] = Field(default_factory=dict)
 
 
 class EvidencePacket(BaseModel):
-    """
-    Core data structure for evidence flowing through the pipeline.
+    """Core data structure for evidence flowing through the pipeline.
     Immutable-style updates via copy-on-write pattern.
     """
+
     # Identity
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    case_id: Optional[str] = None
+    case_id: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     # Source data
     evidence_type: EvidenceType = EvidenceType.TEXT
-    raw_content: Optional[bytes] = None
-    source_path: Optional[str] = None
-    source_metadata: Dict[str, Any] = Field(default_factory=dict)
+    raw_content: bytes | None = None
+    source_path: str | None = None
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
 
     # Processing state
     stage: ProcessingStage = ProcessingStage.RAW
 
     # Extracted content
-    extracted_text: Optional[str] = None
-    ocr_confidence: Optional[float] = None
+    extracted_text: str | None = None
+    ocr_confidence: float | None = None
 
     # Analysis results
-    behavioral_indicators: Optional[BehavioralIndicators] = None
-    analysis_results: List[AnalysisResult] = Field(default_factory=list)
+    behavioral_indicators: BehavioralIndicators | None = None
+    analysis_results: list[AnalysisResult] = Field(default_factory=list)
 
     # Fusion output
-    fused_score: Optional[float] = None
-    fused_classification: Optional[str] = None
-    fusion_metadata: Dict[str, Any] = Field(default_factory=dict)
+    fused_score: float | None = None
+    fused_classification: str | None = None
+    fusion_metadata: dict[str, Any] = Field(default_factory=dict)
 
     # Chain of custody
     chain_of_custody: ChainOfCustody = None
@@ -201,7 +208,7 @@ class EvidencePacket(BaseModel):
         """SHA-256 hash of the raw content."""
         if self.raw_content:
             return hashlib.sha256(self.raw_content).hexdigest()
-        elif self.extracted_text:
+        if self.extracted_text:
             return hashlib.sha256(self.extracted_text.encode()).hexdigest()
         return hashlib.sha256(b"empty").hexdigest()
 
@@ -211,7 +218,7 @@ class EvidencePacket(BaseModel):
             return self.extracted_text
         if self.raw_content:
             try:
-                return self.raw_content.decode('utf-8')
+                return self.raw_content.decode("utf-8")
             except UnicodeDecodeError:
                 return ""
         return ""

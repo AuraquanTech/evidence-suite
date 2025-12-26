@@ -1,10 +1,8 @@
-"""
-Evidence Suite - Analysis Schemas
-"""
+"""Evidence Suite - Analysis Schemas"""
+
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from uuid import UUID
 from enum import Enum
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -18,6 +16,7 @@ class AnalysisStatus(str, Enum):
 
 class BehavioralIndicators(BaseModel):
     """Behavioral analysis results."""
+
     sentiment_compound: float = Field(..., ge=-1.0, le=1.0)
     sentiment_positive: float = Field(..., ge=0.0, le=1.0)
     sentiment_negative: float = Field(..., ge=0.0, le=1.0)
@@ -26,21 +25,23 @@ class BehavioralIndicators(BaseModel):
     gaslighting_score: float = Field(..., ge=0.0, le=1.0)
     manipulation_score: float = Field(..., ge=0.0, le=1.0)
     deception_score: float = Field(..., ge=0.0, le=1.0)
-    primary_behavior: Optional[str] = None
-    detected_patterns: List[str] = []
+    primary_behavior: str | None = None
+    detected_patterns: list[str] = []
 
 
 class FusionResults(BaseModel):
     """Multi-modal fusion results."""
+
     fused_score: float
     classification: str
     confidence: float
-    modality_contributions: Dict[str, float] = {}
+    modality_contributions: dict[str, float] = {}
     consensus_achieved: bool = False
 
 
 class AnalysisRequest(BaseModel):
     """Request to analyze evidence."""
+
     evidence_id: UUID
     run_ocr: bool = True
     run_behavioral: bool = True
@@ -50,15 +51,16 @@ class AnalysisRequest(BaseModel):
 
 class AnalysisJobResponse(BaseModel):
     """Analysis job status response."""
+
     id: UUID
     evidence_id: UUID
     status: AnalysisStatus
-    current_stage: Optional[str] = None
+    current_stage: str | None = None
     progress_percent: float = 0.0
     created_at: datetime
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    error_message: Optional[str] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
 
     class Config:
         from_attributes = True
@@ -66,18 +68,20 @@ class AnalysisJobResponse(BaseModel):
 
 class AnalysisResponse(BaseModel):
     """Full analysis results response."""
+
     evidence_id: UUID
     status: AnalysisStatus
-    behavioral_indicators: Optional[BehavioralIndicators] = None
-    fusion_results: Optional[FusionResults] = None
-    ocr_text: Optional[str] = None
+    behavioral_indicators: BehavioralIndicators | None = None
+    fusion_results: FusionResults | None = None
+    ocr_text: str | None = None
     processing_time_ms: float
     analyzed_at: datetime
 
 
 class BatchAnalysisRequest(BaseModel):
     """Request to analyze multiple evidence items."""
-    evidence_ids: List[UUID]
+
+    evidence_ids: list[UUID]
     run_ocr: bool = True
     run_behavioral: bool = True
     run_fusion: bool = True
@@ -85,6 +89,7 @@ class BatchAnalysisRequest(BaseModel):
 
 class BatchAnalysisResponse(BaseModel):
     """Batch analysis status."""
-    job_ids: List[UUID]
+
+    job_ids: list[UUID]
     total_items: int
     status: str = "queued"

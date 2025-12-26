@@ -1,35 +1,32 @@
-"""
-Evidence Suite - Email Agent
+"""Evidence Suite - Email Agent
 Email parsing and forensic analysis for message evidence.
 """
+
 from __future__ import annotations
+
 import email
+import hashlib
 import re
 from email import policy
 from email.parser import BytesParser
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
-from loguru import logger
-import hashlib
+from typing import Any
 
-from core.models import (
-    EvidencePacket,
-    AnalysisResult,
-    ProcessingStage,
-    EvidenceType
-)
+from loguru import logger
+
 from agents.base import BaseAgent
+from core.models import AnalysisResult, EvidencePacket, EvidenceType, ProcessingStage
 
 
 class EmailConfig:
     """Email Agent configuration."""
+
     def __init__(
         self,
         extract_attachments: bool = True,
         parse_headers: bool = True,
         detect_spoofing: bool = True,
         extract_urls: bool = True,
-        max_attachment_size_mb: int = 50
+        max_attachment_size_mb: int = 50,
     ):
         self.extract_attachments = extract_attachments
         self.parse_headers = parse_headers
@@ -39,8 +36,7 @@ class EmailConfig:
 
 
 class EmailAgent(BaseAgent):
-    """
-    Sensory layer agent for email forensic analysis.
+    """Sensory layer agent for email forensic analysis.
 
     Features:
     - Email header parsing and analysis
@@ -51,11 +47,7 @@ class EmailAgent(BaseAgent):
     - Timestamp analysis
     """
 
-    def __init__(
-        self,
-        agent_id: Optional[str] = None,
-        config: Optional[EmailConfig] = None
-    ):
+    def __init__(self, agent_id: str | None = None, config: EmailConfig | None = None):
         self.email_config = config or EmailConfig()
         super().__init__(
             agent_id=agent_id,
@@ -64,7 +56,7 @@ class EmailAgent(BaseAgent):
                 "extract_attachments": self.email_config.extract_attachments,
                 "parse_headers": self.email_config.parse_headers,
                 "detect_spoofing": self.email_config.detect_spoofing,
-            }
+            },
         )
 
     async def _setup(self) -> None:
@@ -72,8 +64,7 @@ class EmailAgent(BaseAgent):
         logger.info("Email Agent initialized")
 
     async def _process_impl(self, packet: EvidencePacket) -> EvidencePacket:
-        """
-        Process email evidence.
+        """Process email evidence.
 
         Steps:
         1. Parse email structure
@@ -95,9 +86,13 @@ class EmailAgent(BaseAgent):
         # Extract components
         headers = self._extract_headers(msg)
         body_text, body_html = self._extract_body(msg)
-        attachments = self._extract_attachments(msg) if self.email_config.extract_attachments else []
+        attachments = (
+            self._extract_attachments(msg) if self.email_config.extract_attachments else []
+        )
         urls = self._extract_urls(body_text + body_html) if self.email_config.extract_urls else []
-        spoofing_indicators = self._detect_spoofing(msg, headers) if self.email_config.detect_spoofing else {}
+        spoofing_indicators = (
+            self._detect_spoofing(msg, headers) if self.email_config.detect_spoofing else {}
+        )
 
         # Thread analysis
         thread_info = self._analyze_thread(msg, headers)
@@ -127,7 +122,7 @@ class EmailAgent(BaseAgent):
                 "urls": urls,
                 "spoofing_indicators": spoofing_indicators,
                 "thread_info": thread_info,
-            }
+            },
         )
 
         return packet.with_updates(
@@ -140,17 +135,26 @@ class EmailAgent(BaseAgent):
                     "headers": headers,
                     "attachments": [a["filename"] for a in attachments],
                     "urls": urls[:20],  # Limit stored URLs
-                }
-            }
+                },
+            },
         )
 
-    def _extract_headers(self, msg: email.message.EmailMessage) -> Dict[str, Any]:
+    def _extract_headers(self, msg: email.message.EmailMessage) -> dict[str, Any]:
         """Extract and parse email headers."""
         headers = {}
 
         # Standard headers
-        for header in ["From", "To", "Cc", "Bcc", "Subject", "Date",
-                       "Message-ID", "In-Reply-To", "References"]:
+        for header in [
+            "From",
+            "To",
+            "Cc",
+            "Bcc",
+            "Subject",
+            "Date",
+            "Message-ID",
+            "In-Reply-To",
+            "References",
+        ]:
             value = msg.get(header)
             if value:
                 headers[header.lower().replace("-", "_")] = str(value)
@@ -158,7 +162,9 @@ class EmailAgent(BaseAgent):
         # Parse date
         if "date" in headers:
             try:
-                headers["date_parsed"] = email.utils.parsedate_to_datetime(headers["date"]).isoformat()
+                headers["date_parsed"] = email.utils.parsedate_to_datetime(
+                    headers["date"]
+                ).isoformat()
             except Exception:
                 pass
 
@@ -167,13 +173,16 @@ class EmailAgent(BaseAgent):
             headers["from_address"] = self._extract_email_address(headers["from"])
         if "to" in headers:
             headers["to_addresses"] = [
-                self._extract_email_address(addr)
-                for addr in headers["to"].split(",")
+                self._extract_email_address(addr) for addr in headers["to"].split(",")
             ]
 
         # Authentication headers
-        for auth_header in ["Received-SPF", "Authentication-Results",
-                           "DKIM-Signature", "ARC-Authentication-Results"]:
+        for auth_header in [
+            "Received-SPF",
+            "Authentication-Results",
+            "DKIM-Signature",
+            "ARC-Authentication-Results",
+        ]:
             value = msg.get(auth_header)
             if value:
                 headers[auth_header.lower().replace("-", "_")] = str(value)
@@ -184,12 +193,12 @@ class EmailAgent(BaseAgent):
 
         return headers
 
-    def _extract_email_address(self, header_value: str) -> Optional[str]:
+    def _extract_email_address(self, header_value: str) -> str | None:
         """Extract email address from header value."""
-        match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', header_value)
+        match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", header_value)
         return match.group(0) if match else None
 
-    def _extract_body(self, msg: email.message.EmailMessage) -> Tuple[str, str]:
+    def _extract_body(self, msg: email.message.EmailMessage) -> tuple[str, str]:
         """Extract plain text and HTML body."""
         text_body = ""
         html_body = ""
@@ -234,8 +243,8 @@ class EmailAgent(BaseAgent):
         """Convert HTML to plain text."""
         # Simple HTML to text conversion
         # Remove script and style elements
-        text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
 
         # Replace common HTML entities
         text = text.replace("&nbsp;", " ")
@@ -244,14 +253,14 @@ class EmailAgent(BaseAgent):
         text = text.replace("&amp;", "&")
 
         # Remove tags
-        text = re.sub(r'<[^>]+>', ' ', text)
+        text = re.sub(r"<[^>]+>", " ", text)
 
         # Clean up whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
+        text = re.sub(r"\s+", " ", text).strip()
 
         return text
 
-    def _extract_attachments(self, msg: email.message.EmailMessage) -> List[Dict[str, Any]]:
+    def _extract_attachments(self, msg: email.message.EmailMessage) -> list[dict[str, Any]]:
         """Extract and hash attachments."""
         attachments = []
 
@@ -271,18 +280,20 @@ class EmailAgent(BaseAgent):
                             else:
                                 file_hash = "size_exceeded"
 
-                            attachments.append({
-                                "filename": filename,
-                                "content_type": part.get_content_type(),
-                                "size_bytes": size,
-                                "sha256": file_hash,
-                            })
+                            attachments.append(
+                                {
+                                    "filename": filename,
+                                    "content_type": part.get_content_type(),
+                                    "size_bytes": size,
+                                    "sha256": file_hash,
+                                }
+                            )
                     except Exception as e:
                         logger.warning(f"Failed to process attachment {filename}: {e}")
 
         return attachments
 
-    def _extract_urls(self, text: str) -> List[str]:
+    def _extract_urls(self, text: str) -> list[str]:
         """Extract URLs from text."""
         url_pattern = r'https?://[^\s<>"\']+|www\.[^\s<>"\']+'
         urls = re.findall(url_pattern, text, re.IGNORECASE)
@@ -291,17 +302,15 @@ class EmailAgent(BaseAgent):
         cleaned = []
         for url in urls:
             # Remove trailing punctuation
-            url = re.sub(r'[.,;:!?)]+$', '', url)
+            url = re.sub(r"[.,;:!?)]+$", "", url)
             if url not in cleaned:
                 cleaned.append(url)
 
         return cleaned
 
     def _detect_spoofing(
-        self,
-        msg: email.message.EmailMessage,
-        headers: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, msg: email.message.EmailMessage, headers: dict[str, Any]
+    ) -> dict[str, Any]:
         """Detect email spoofing indicators."""
         indicators = {
             "spf_result": None,
@@ -311,7 +320,7 @@ class EmailAgent(BaseAgent):
             "display_name_mismatch": False,
             "suspicious_routing": False,
             "risk_level": "low",
-            "warnings": []
+            "warnings": [],
         }
 
         # Check SPF
@@ -346,14 +355,16 @@ class EmailAgent(BaseAgent):
             reply_to_addr = self._extract_email_address(reply_to)
             if reply_to_addr and reply_to_addr != from_addr:
                 indicators["reply_to_mismatch"] = True
-                indicators["warnings"].append(f"Reply-To ({reply_to_addr}) differs from From ({from_addr})")
+                indicators["warnings"].append(
+                    f"Reply-To ({reply_to_addr}) differs from From ({from_addr})"
+                )
 
         # Check display name vs email domain
         from_header = headers.get("from", "")
         if from_addr:
             domain = from_addr.split("@")[-1] if "@" in from_addr else ""
             # Check if display name contains a different domain
-            domain_pattern = r'[\w\.-]+\.(com|org|net|gov|edu|io|co)'
+            domain_pattern = r"[\w\.-]+\.(com|org|net|gov|edu|io|co)"
             display_domains = re.findall(domain_pattern, from_header, re.IGNORECASE)
             if display_domains and domain.lower() not in from_header.lower():
                 indicators["display_name_mismatch"] = True
@@ -377,10 +388,8 @@ class EmailAgent(BaseAgent):
         return indicators
 
     def _analyze_thread(
-        self,
-        msg: email.message.EmailMessage,
-        headers: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, msg: email.message.EmailMessage, headers: dict[str, Any]
+    ) -> dict[str, Any]:
         """Analyze email thread context."""
         thread_info = {
             "is_reply": False,
@@ -406,14 +415,14 @@ class EmailAgent(BaseAgent):
         # Check subject for Fwd: or Re:
         subject = headers.get("subject", "")
         if subject:
-            if re.match(r'^(Fwd|Fw):', subject, re.IGNORECASE):
+            if re.match(r"^(Fwd|Fw):", subject, re.IGNORECASE):
                 thread_info["is_forward"] = True
-            if re.match(r'^Re:', subject, re.IGNORECASE):
+            if re.match(r"^Re:", subject, re.IGNORECASE):
                 thread_info["is_reply"] = True
 
         return thread_info
 
-    def _build_full_text(self, headers: Dict[str, Any], body: str) -> str:
+    def _build_full_text(self, headers: dict[str, Any], body: str) -> str:
         """Build full text for behavioral analysis."""
         parts = []
 
@@ -429,9 +438,7 @@ class EmailAgent(BaseAgent):
         return "\n\n".join(parts)
 
     def _calculate_confidence(
-        self,
-        headers: Dict[str, Any],
-        spoofing_indicators: Dict[str, Any]
+        self, headers: dict[str, Any], spoofing_indicators: dict[str, Any]
     ) -> float:
         """Calculate parsing confidence."""
         confidence = 0.8  # Base confidence

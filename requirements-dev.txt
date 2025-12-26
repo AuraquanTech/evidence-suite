@@ -1,0 +1,120 @@
+# Evidence Suite: Development Dependencies
+# Author: Senior Director of Coding Excellence
+#
+# Install: pip install -r requirements-dev.txt
+# Note: This includes production deps + dev tools
+
+# Include production dependencies
+-r requirements.txt
+
+# =============================================================================
+# CODE QUALITY & LINTING
+# =============================================================================
+
+# Fast Python linter & formatter (replaces flake8, black, isort)
+ruff>=0.8.0
+
+# Static type checking
+mypy>=1.13.0
+types-PyYAML>=6.0.12
+types-redis>=4.6.0
+types-passlib>=1.7.7
+types-python-jose>=3.3.4
+
+# Additional static analysis
+pylint>=3.3.0
+vulture>=2.14              # Dead code detection
+radon>=6.0.1               # Complexity metrics
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+
+# Security linting
+bandit>=1.8.0
+bandit[toml]>=1.8.0        # TOML config support
+
+# Dependency vulnerability scanning
+pip-audit>=2.7.0
+safety>=3.2.0
+
+# Secret detection
+detect-secrets>=1.5.0
+
+# =============================================================================
+# TESTING
+# =============================================================================
+
+# Testing framework
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+pytest-cov>=6.0.0          # Coverage
+pytest-xdist>=3.5.0        # Parallel testing
+pytest-timeout>=2.3.0      # Timeout support
+pytest-mock>=3.14.0        # Mocking
+
+# Coverage reporting
+coverage[toml]>=7.6.0
+
+# HTTP client for API testing
+httpx>=0.28.0
+
+# Faker for test data
+faker>=33.0.0
+
+# =============================================================================
+# PRE-COMMIT & AUTOMATION
+# =============================================================================
+
+# Pre-commit framework
+pre-commit>=4.0.0
+
+# Commit message linting
+commitizen>=4.1.0
+
+# =============================================================================
+# DOCUMENTATION
+# =============================================================================
+
+# Documentation generator
+mkdocs>=1.6.0
+mkdocs-material>=9.5.0
+mkdocstrings[python]>=0.27.0
+
+# =============================================================================
+# DEBUGGING & PROFILING
+# =============================================================================
+
+# Interactive debugging
+ipdb>=0.13.13
+rich>=13.9.0               # Beautiful terminal output
+
+# Profiling
+py-spy>=0.4.0              # Sampling profiler
+memory-profiler>=0.61.0    # Memory profiling
+line-profiler>=4.2.0       # Line-by-line profiling
+
+# =============================================================================
+# BUILD & PACKAGING
+# =============================================================================
+
+# Build tools
+build>=1.2.0
+wheel>=0.45.0
+setuptools>=75.0.0
+twine>=6.0.0               # Package uploading
+
+# =============================================================================
+# DATABASE TOOLS
+# =============================================================================
+
+# Database inspection
+sqlalchemy-utils>=0.41.0
+
+# =============================================================================
+# OPTIONAL: GPU PROFILING (RTX 5090)
+# =============================================================================
+
+# Uncomment for GPU development
+# nvitop>=1.3.0            # NVIDIA GPU monitoring
+# torch-tb-profiler>=0.4.0 # TensorBoard profiler

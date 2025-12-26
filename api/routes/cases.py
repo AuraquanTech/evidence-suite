@@ -1,25 +1,26 @@
-"""
-Evidence Suite - Case Routes
+"""Evidence Suite - Case Routes
 Optimized with repository pattern and eager loading.
 """
+
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import Case, CaseStatus as DBCaseStatus
-from core.database.session import get_db
-from core.database.repository import CaseRepository, get_case_repository
 from api.schemas.cases import (
     CaseCreate,
-    CaseUpdate,
-    CaseResponse,
     CaseListResponse,
+    CaseResponse,
     CaseStatus,
+    CaseUpdate,
 )
+from core.database import Case
+from core.database import CaseStatus as DBCaseStatus
+from core.database.repository import CaseRepository, get_case_repository
+from core.database.session import get_db
+
 
 router = APIRouter(prefix="/cases", tags=["Cases"])
 
@@ -30,15 +31,10 @@ async def get_repo(db: AsyncSession = Depends(get_db)) -> CaseRepository:
 
 
 @router.post("/", response_model=CaseResponse, status_code=201)
-async def create_case(
-    case_data: CaseCreate,
-    db: AsyncSession = Depends(get_db)
-):
+async def create_case(case_data: CaseCreate, db: AsyncSession = Depends(get_db)):
     """Create a new case."""
     # Check for duplicate case number
-    existing = await db.execute(
-        select(Case).where(Case.case_number == case_data.case_number)
-    )
+    existing = await db.execute(select(Case).where(Case.case_number == case_data.case_number))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Case number already exists")
 
@@ -73,9 +69,9 @@ async def create_case(
 async def list_cases(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    status: Optional[CaseStatus] = None,
-    search: Optional[str] = None,
-    repo: CaseRepository = Depends(get_repo)
+    status: CaseStatus | None = None,
+    search: str | None = None,
+    repo: CaseRepository = Depends(get_repo),
 ):
     """List cases with pagination and filtering.
 
@@ -87,10 +83,7 @@ async def list_cases(
 
     # Use optimized repository method - single query for cases + counts
     cases_with_counts, total = await repo.list_with_evidence_counts(
-        page=page,
-        page_size=page_size,
-        status=db_status,
-        search=search
+        page=page, page_size=page_size, status=db_status, search=search
     )
 
     items = [
@@ -121,10 +114,7 @@ async def list_cases(
 
 
 @router.get("/{case_id}", response_model=CaseResponse)
-async def get_case(
-    case_id: UUID,
-    repo: CaseRepository = Depends(get_repo)
-):
+async def get_case(case_id: UUID, repo: CaseRepository = Depends(get_repo)):
     """Get a case by ID.
 
     Optimized: Uses single query with JOIN for evidence count.
@@ -153,11 +143,7 @@ async def get_case(
 
 
 @router.patch("/{case_id}", response_model=CaseResponse)
-async def update_case(
-    case_id: UUID,
-    case_data: CaseUpdate,
-    db: AsyncSession = Depends(get_db)
-):
+async def update_case(case_id: UUID, case_data: CaseUpdate, db: AsyncSession = Depends(get_db)):
     """Update a case."""
     result = await db.execute(select(Case).where(Case.id == case_id))
     case = result.scalar_one_or_none()
@@ -194,10 +180,7 @@ async def update_case(
 
 
 @router.delete("/{case_id}", status_code=204)
-async def delete_case(
-    case_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
+async def delete_case(case_id: UUID, db: AsyncSession = Depends(get_db)):
     """Delete a case (soft delete by archiving)."""
     result = await db.execute(select(Case).where(Case.id == case_id))
     case = result.scalar_one_or_none()

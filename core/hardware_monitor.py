@@ -1,18 +1,23 @@
-"""
-Evidence Suite - Hardware Monitor
+"""Evidence Suite - Hardware Monitor
 RTX 5090 Mobile Edition thermal, power, and VRAM safeguards.
 """
+
 from __future__ import annotations
+
 import subprocess
-import time
 import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Callable, Dict, Any
+from typing import Any
+
 from loguru import logger
+
 
 try:
     import psutil
+
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
@@ -21,6 +26,7 @@ except ImportError:
 
 class PowerState(str, Enum):
     """Laptop power states."""
+
     AC = "ac"
     BATTERY = "battery"
     UNKNOWN = "unknown"
@@ -28,15 +34,17 @@ class PowerState(str, Enum):
 
 class ThermalState(str, Enum):
     """Thermal condition states."""
-    NORMAL = "normal"           # < 70°C
-    WARM = "warm"               # 70-80°C
-    HOT = "hot"                 # 80-85°C
-    CRITICAL = "critical"       # > 85°C
+
+    NORMAL = "normal"  # < 70°C
+    WARM = "warm"  # 70-80°C
+    HOT = "hot"  # 80-85°C
+    CRITICAL = "critical"  # > 85°C
 
 
 @dataclass
 class GPUStatus:
     """Current GPU status."""
+
     name: str
     temperature_c: float
     utilization_percent: float
@@ -57,16 +65,16 @@ class GPUStatus:
 @dataclass
 class SystemStatus:
     """Combined system status."""
-    gpu: Optional[GPUStatus]
+
+    gpu: GPUStatus | None
     power_state: PowerState
     cpu_percent: float
     ram_percent: float
-    battery_percent: Optional[float]
+    battery_percent: float | None
 
 
 class HardwareMonitor:
-    """
-    Real-time hardware monitoring for RTX 5090 Mobile.
+    """Real-time hardware monitoring for RTX 5090 Mobile.
 
     Features:
     - VRAM usage tracking with alerts
@@ -90,9 +98,9 @@ class HardwareMonitor:
     def __init__(
         self,
         check_interval: float = 5.0,
-        on_thermal_warning: Optional[Callable[[ThermalState], None]] = None,
-        on_vram_warning: Optional[Callable[[float], None]] = None,
-        on_power_change: Optional[Callable[[PowerState], None]] = None
+        on_thermal_warning: Callable[[ThermalState], None] | None = None,
+        on_vram_warning: Callable[[float], None] | None = None,
+        on_power_change: Callable[[PowerState], None] | None = None,
     ):
         self.check_interval = check_interval
         self._on_thermal_warning = on_thermal_warning
@@ -100,33 +108,34 @@ class HardwareMonitor:
         self._on_power_change = on_power_change
 
         self._running = False
-        self._monitor_thread: Optional[threading.Thread] = None
+        self._monitor_thread: threading.Thread | None = None
         self._last_power_state = PowerState.UNKNOWN
-        self._last_status: Optional[SystemStatus] = None
+        self._last_status: SystemStatus | None = None
 
         # Cooldown tracking
         self._cooldown_active = False
         self._cooldown_until = 0.0
 
-    def get_gpu_status(self) -> Optional[GPUStatus]:
+    def get_gpu_status(self) -> GPUStatus | None:
         """Query NVIDIA GPU status via nvidia-smi."""
         try:
             result = subprocess.run(
                 [
                     "nvidia-smi",
                     "--query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw",
-                    "--format=csv,noheader,nounits"
+                    "--format=csv,noheader,nounits",
                 ],
+                check=False,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
 
             if result.returncode != 0:
                 return None
 
-            line = result.stdout.strip().split('\n')[0]
-            parts = [p.strip() for p in line.split(',')]
+            line = result.stdout.strip().split("\n")[0]
+            parts = [p.strip() for p in line.split(",")]
 
             if len(parts) < 6:
                 return None
@@ -140,8 +149,8 @@ class HardwareMonitor:
                 utilization_percent=float(parts[2]),
                 vram_used_mb=float(parts[3]),
                 vram_total_mb=float(parts[4]),
-                power_draw_w=float(parts[5]) if parts[5] != '[N/A]' else 0.0,
-                thermal_state=thermal_state
+                power_draw_w=float(parts[5]) if parts[5] != "[N/A]" else 0.0,
+                thermal_state=thermal_state,
             )
 
         except (subprocess.TimeoutExpired, FileNotFoundError, ValueError) as e:
@@ -161,7 +170,7 @@ class HardwareMonitor:
         except Exception:
             return PowerState.UNKNOWN
 
-    def get_battery_percent(self) -> Optional[float]:
+    def get_battery_percent(self) -> float | None:
         """Get battery percentage if available."""
         if not PSUTIL_AVAILABLE:
             return None
@@ -186,7 +195,7 @@ class HardwareMonitor:
             power_state=power,
             cpu_percent=cpu_percent,
             ram_percent=ram_percent,
-            battery_percent=battery
+            battery_percent=battery,
         )
 
         self._last_status = status
@@ -196,16 +205,14 @@ class HardwareMonitor:
         """Classify GPU temperature into thermal state."""
         if temp_c < self.TEMP_NORMAL:
             return ThermalState.NORMAL
-        elif temp_c < self.TEMP_WARM:
+        if temp_c < self.TEMP_WARM:
             return ThermalState.WARM
-        elif temp_c < self.TEMP_HOT:
+        if temp_c < self.TEMP_HOT:
             return ThermalState.HOT
-        else:
-            return ThermalState.CRITICAL
+        return ThermalState.CRITICAL
 
-    def should_throttle(self) -> Dict[str, Any]:
-        """
-        Determine if processing should be throttled.
+    def should_throttle(self) -> dict[str, Any]:
+        """Determine if processing should be throttled.
 
         Returns dict with:
         - throttle: bool - whether to throttle
@@ -222,7 +229,7 @@ class HardwareMonitor:
                 "throttle": True,
                 "reason": "cooldown_active",
                 "severity": "medium",
-                "recommended_delay": remaining
+                "recommended_delay": remaining,
             }
 
         self._cooldown_active = False
@@ -234,7 +241,7 @@ class HardwareMonitor:
                 "reason": "battery_power",
                 "severity": "medium",
                 "recommended_delay": 0,
-                "reduce_workers": 0.5  # 50% reduction
+                "reduce_workers": 0.5,  # 50% reduction
             }
 
         # Check GPU status
@@ -246,7 +253,7 @@ class HardwareMonitor:
                     "reason": "vram_critical",
                     "severity": "critical",
                     "recommended_delay": 30,
-                    "pause_refinement": True
+                    "pause_refinement": True,
                 }
 
             # VRAM warning
@@ -258,7 +265,7 @@ class HardwareMonitor:
                     "reason": "vram_high",
                     "severity": "high",
                     "recommended_delay": 10,
-                    "pause_refinement": True
+                    "pause_refinement": True,
                 }
 
             # Thermal critical
@@ -269,7 +276,7 @@ class HardwareMonitor:
                     "throttle": True,
                     "reason": "thermal_critical",
                     "severity": "critical",
-                    "recommended_delay": 30
+                    "recommended_delay": 30,
                 }
 
             # Thermal hot
@@ -278,15 +285,10 @@ class HardwareMonitor:
                     "throttle": True,
                     "reason": "thermal_hot",
                     "severity": "high",
-                    "recommended_delay": 10
+                    "recommended_delay": 10,
                 }
 
-        return {
-            "throttle": False,
-            "reason": None,
-            "severity": None,
-            "recommended_delay": 0
-        }
+        return {"throttle": False, "reason": None, "severity": None, "recommended_delay": 0}
 
     def activate_cooldown(self, duration: float = 30.0):
         """Activate a cooldown period after intensive processing."""
@@ -300,10 +302,7 @@ class HardwareMonitor:
             return
 
         self._running = True
-        self._monitor_thread = threading.Thread(
-            target=self._monitor_loop,
-            daemon=True
-        )
+        self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._monitor_thread.start()
         logger.info("Hardware monitoring started")
 
@@ -373,24 +372,28 @@ class HardwareMonitor:
         lines = [
             "┌─────────────────────────────────────────┐",
             "│         HARDWARE STATUS                 │",
-            "├─────────────────────────────────────────┤"
+            "├─────────────────────────────────────────┤",
         ]
 
         if status.gpu:
-            lines.extend([
-                f"│ GPU: {status.gpu.name[:35]:<35} │",
-                f"│ Temp: {status.gpu.temperature_c:.0f}°C ({status.gpu.thermal_state.value:<8})      │",
-                f"│ VRAM: {status.gpu.vram_used_mb:.0f}/{status.gpu.vram_total_mb:.0f} MB ({status.gpu.vram_percent:.1f}%)     │",
-                f"│ Util: {status.gpu.utilization_percent:.0f}%  Power: {status.gpu.power_draw_w:.0f}W          │",
-            ])
+            lines.extend(
+                [
+                    f"│ GPU: {status.gpu.name[:35]:<35} │",
+                    f"│ Temp: {status.gpu.temperature_c:.0f}°C ({status.gpu.thermal_state.value:<8})      │",
+                    f"│ VRAM: {status.gpu.vram_used_mb:.0f}/{status.gpu.vram_total_mb:.0f} MB ({status.gpu.vram_percent:.1f}%)     │",
+                    f"│ Util: {status.gpu.utilization_percent:.0f}%  Power: {status.gpu.power_draw_w:.0f}W          │",
+                ]
+            )
         else:
             lines.append("│ GPU: Not detected                       │")
 
-        lines.extend([
-            "├─────────────────────────────────────────┤",
-            f"│ Power: {status.power_state.value.upper():<10}                      │",
-            f"│ CPU: {status.cpu_percent:.1f}%  RAM: {status.ram_percent:.1f}%              │",
-        ])
+        lines.extend(
+            [
+                "├─────────────────────────────────────────┤",
+                f"│ Power: {status.power_state.value.upper():<10}                      │",
+                f"│ CPU: {status.cpu_percent:.1f}%  RAM: {status.ram_percent:.1f}%              │",
+            ]
+        )
 
         if status.battery_percent is not None:
             lines.append(f"│ Battery: {status.battery_percent:.0f}%                          │")
@@ -401,7 +404,7 @@ class HardwareMonitor:
 
 
 # Singleton instance for easy access
-_monitor: Optional[HardwareMonitor] = None
+_monitor: HardwareMonitor | None = None
 
 
 def get_monitor() -> HardwareMonitor:

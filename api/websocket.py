@@ -1,22 +1,13 @@
-"""
-Evidence Suite - WebSocket Support
+"""Evidence Suite - WebSocket Support
 Real-time analysis progress updates.
 """
-import asyncio
-import json
-from typing import Dict, Set, Optional
-from uuid import UUID
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
-
-from api.auth import get_current_user
-from core.database import User
 
 
 class ConnectionManager:
-    """
-    WebSocket connection manager for real-time updates.
+    """WebSocket connection manager for real-time updates.
 
     Features:
     - Per-evidence subscriptions
@@ -27,15 +18,15 @@ class ConnectionManager:
 
     def __init__(self):
         # Active connections: websocket -> user_id
-        self.active_connections: Dict[WebSocket, Optional[str]] = {}
+        self.active_connections: dict[WebSocket, str | None] = {}
 
         # Subscriptions: evidence_id -> set of websockets
-        self.evidence_subscriptions: Dict[str, Set[WebSocket]] = {}
+        self.evidence_subscriptions: dict[str, set[WebSocket]] = {}
 
         # Case subscriptions: case_id -> set of websockets
-        self.case_subscriptions: Dict[str, Set[WebSocket]] = {}
+        self.case_subscriptions: dict[str, set[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket, user_id: Optional[str] = None):
+    async def connect(self, websocket: WebSocket, user_id: str | None = None):
         """Accept new WebSocket connection."""
         await websocket.accept()
         self.active_connections[websocket] = user_id
@@ -96,12 +87,7 @@ class ConnectionManager:
         for conn in disconnected:
             self.disconnect(conn)
 
-    async def notify_evidence_update(
-        self,
-        evidence_id: str,
-        event_type: str,
-        data: dict
-    ):
+    async def notify_evidence_update(self, evidence_id: str, event_type: str, data: dict):
         """Notify all subscribers of evidence update."""
         if evidence_id not in self.evidence_subscriptions:
             return
@@ -110,7 +96,7 @@ class ConnectionManager:
             "type": "evidence_update",
             "event": event_type,
             "evidence_id": evidence_id,
-            "data": data
+            "data": data,
         }
 
         disconnected = []
@@ -124,22 +110,12 @@ class ConnectionManager:
         for ws in disconnected:
             self.disconnect(ws)
 
-    async def notify_case_update(
-        self,
-        case_id: str,
-        event_type: str,
-        data: dict
-    ):
+    async def notify_case_update(self, case_id: str, event_type: str, data: dict):
         """Notify all subscribers of case update."""
         if case_id not in self.case_subscriptions:
             return
 
-        message = {
-            "type": "case_update",
-            "event": event_type,
-            "case_id": case_id,
-            "data": data
-        }
+        message = {"type": "case_update", "event": event_type, "case_id": case_id, "data": data}
 
         disconnected = []
         for websocket in self.case_subscriptions[case_id]:
@@ -153,46 +129,22 @@ class ConnectionManager:
             self.disconnect(ws)
 
     async def notify_analysis_progress(
-        self,
-        evidence_id: str,
-        stage: str,
-        progress: float,
-        details: Optional[dict] = None
+        self, evidence_id: str, stage: str, progress: float, details: dict | None = None
     ):
         """Notify subscribers of analysis progress."""
         await self.notify_evidence_update(
             evidence_id,
             "analysis_progress",
-            {
-                "stage": stage,
-                "progress": progress,
-                "details": details or {}
-            }
+            {"stage": stage, "progress": progress, "details": details or {}},
         )
 
-    async def notify_analysis_complete(
-        self,
-        evidence_id: str,
-        result: dict
-    ):
+    async def notify_analysis_complete(self, evidence_id: str, result: dict):
         """Notify subscribers that analysis is complete."""
-        await self.notify_evidence_update(
-            evidence_id,
-            "analysis_complete",
-            result
-        )
+        await self.notify_evidence_update(evidence_id, "analysis_complete", result)
 
-    async def notify_analysis_error(
-        self,
-        evidence_id: str,
-        error: str
-    ):
+    async def notify_analysis_error(self, evidence_id: str, error: str):
         """Notify subscribers of analysis error."""
-        await self.notify_evidence_update(
-            evidence_id,
-            "analysis_error",
-            {"error": error}
-        )
+        await self.notify_evidence_update(evidence_id, "analysis_error", {"error": error})
 
 
 # Global connection manager
@@ -205,8 +157,7 @@ router = APIRouter(prefix="/ws", tags=["WebSocket"])
 
 @router.websocket("/updates")
 async def websocket_endpoint(websocket: WebSocket):
-    """
-    WebSocket endpoint for real-time updates.
+    """WebSocket endpoint for real-time updates.
 
     Message format (incoming):
     {
@@ -239,11 +190,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 evidence_id = data.get("evidence_id")
                 if evidence_id:
                     manager.subscribe_evidence(websocket, evidence_id)
-                    await manager.send_personal_message({
-                        "type": "subscribed",
-                        "target": "evidence",
-                        "id": evidence_id
-                    }, websocket)
+                    await manager.send_personal_message(
+                        {"type": "subscribed", "target": "evidence", "id": evidence_id}, websocket
+                    )
 
             elif action == "unsubscribe_evidence":
                 evidence_id = data.get("evidence_id")
@@ -254,11 +203,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 case_id = data.get("case_id")
                 if case_id:
                     manager.subscribe_case(websocket, case_id)
-                    await manager.send_personal_message({
-                        "type": "subscribed",
-                        "target": "case",
-                        "id": case_id
-                    }, websocket)
+                    await manager.send_personal_message(
+                        {"type": "subscribed", "target": "case", "id": case_id}, websocket
+                    )
 
             elif action == "unsubscribe_case":
                 case_id = data.get("case_id")

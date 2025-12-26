@@ -2,8 +2,11 @@
 Evidence Suite - API Tests
 Unit tests for FastAPI endpoints.
 """
-import pytest
+
 from uuid import uuid4
+
+import pytest
+
 
 # Client fixture is provided by conftest.py
 

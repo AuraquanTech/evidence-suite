@@ -1,25 +1,28 @@
-"""
-Evidence Suite - Pipeline Orchestrator
+"""Evidence Suite - Pipeline Orchestrator
 Coordinates the flow of evidence through the agent hierarchy.
 """
+
 from __future__ import annotations
+
 import asyncio
 import time
-from typing import Any, Dict, List, Optional, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
+
 from loguru import logger
 
-from core.models import EvidencePacket, ProcessingStage, EvidenceType
-from core.config import Config, default_config
-from agents.base import BaseAgent
-from agents.ocr_agent import OCRAgent
 from agents.behavioral_agent import BehavioralAgent
 from agents.fusion_agent import FusionAgent
+from agents.ocr_agent import OCRAgent
+from core.config import Config, default_config
+from core.models import EvidencePacket, EvidenceType, ProcessingStage
 
 
 class PipelineStage(str, Enum):
     """Stages in the processing pipeline."""
+
     INTAKE = "intake"
     OCR = "ocr"
     BEHAVIORAL = "behavioral"
@@ -30,17 +33,17 @@ class PipelineStage(str, Enum):
 @dataclass
 class PipelineResult:
     """Result from pipeline execution."""
+
     packet: EvidencePacket
     success: bool
-    stages_completed: List[PipelineStage]
+    stages_completed: list[PipelineStage]
     total_time_ms: float
-    stage_times: Dict[str, float] = field(default_factory=dict)
-    errors: List[str] = field(default_factory=list)
+    stage_times: dict[str, float] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
 
 
 class EvidencePipeline:
-    """
-    Main pipeline orchestrator for Evidence Suite.
+    """Main pipeline orchestrator for Evidence Suite.
 
     Manages the flow: OCR -> Behavioral -> Fusion
 
@@ -51,35 +54,26 @@ class EvidencePipeline:
     - Extensible stage hooks
     """
 
-    def __init__(
-        self,
-        config: Optional[Config] = None,
-        use_ray: bool = False
-    ):
+    def __init__(self, config: Config | None = None, use_ray: bool = False):
         self.config = config or default_config
         self.use_ray = use_ray
         self._initialized = False
 
         # Agents
-        self._ocr_agent: Optional[OCRAgent] = None
-        self._behavioral_agent: Optional[BehavioralAgent] = None
-        self._fusion_agent: Optional[FusionAgent] = None
+        self._ocr_agent: OCRAgent | None = None
+        self._behavioral_agent: BehavioralAgent | None = None
+        self._fusion_agent: FusionAgent | None = None
 
         # Hooks for extensibility
-        self._pre_hooks: Dict[PipelineStage, List[Callable]] = {
+        self._pre_hooks: dict[PipelineStage, list[Callable]] = {
             stage: [] for stage in PipelineStage
         }
-        self._post_hooks: Dict[PipelineStage, List[Callable]] = {
+        self._post_hooks: dict[PipelineStage, list[Callable]] = {
             stage: [] for stage in PipelineStage
         }
 
         # Metrics
-        self._metrics = {
-            "packets_processed": 0,
-            "successful": 0,
-            "failed": 0,
-            "total_time_ms": 0.0
-        }
+        self._metrics = {"packets_processed": 0, "successful": 0, "failed": 0, "total_time_ms": 0.0}
 
         logger.info("EvidencePipeline created")
 
@@ -99,19 +93,14 @@ class EvidencePipeline:
         await asyncio.gather(
             self._ocr_agent.initialize(),
             self._behavioral_agent.initialize(),
-            self._fusion_agent.initialize()
+            self._fusion_agent.initialize(),
         )
 
         self._initialized = True
         logger.info("Evidence Pipeline initialized successfully")
 
-    async def process(
-        self,
-        packet: EvidencePacket,
-        skip_ocr: bool = False
-    ) -> PipelineResult:
-        """
-        Process an evidence packet through the full pipeline.
+    async def process(self, packet: EvidencePacket, skip_ocr: bool = False) -> PipelineResult:
+        """Process an evidence packet through the full pipeline.
 
         Args:
             packet: The evidence to process
@@ -134,9 +123,7 @@ class EvidencePipeline:
             # Stage 1: Intake (validation)
             stage_start = time.perf_counter()
             current_packet = await self._run_stage(
-                PipelineStage.INTAKE,
-                current_packet,
-                self._intake_stage
+                PipelineStage.INTAKE, current_packet, self._intake_stage
             )
             stage_times["intake"] = (time.perf_counter() - stage_start) * 1000
             stages_completed.append(PipelineStage.INTAKE)
@@ -145,9 +132,7 @@ class EvidencePipeline:
             if not skip_ocr and self._needs_ocr(current_packet):
                 stage_start = time.perf_counter()
                 current_packet = await self._run_stage(
-                    PipelineStage.OCR,
-                    current_packet,
-                    self._ocr_stage
+                    PipelineStage.OCR, current_packet, self._ocr_stage
                 )
                 stage_times["ocr"] = (time.perf_counter() - stage_start) * 1000
                 stages_completed.append(PipelineStage.OCR)
@@ -155,9 +140,7 @@ class EvidencePipeline:
             # Stage 3: Behavioral Analysis
             stage_start = time.perf_counter()
             current_packet = await self._run_stage(
-                PipelineStage.BEHAVIORAL,
-                current_packet,
-                self._behavioral_stage
+                PipelineStage.BEHAVIORAL, current_packet, self._behavioral_stage
             )
             stage_times["behavioral"] = (time.perf_counter() - stage_start) * 1000
             stages_completed.append(PipelineStage.BEHAVIORAL)
@@ -165,9 +148,7 @@ class EvidencePipeline:
             # Stage 4: Fusion
             stage_start = time.perf_counter()
             current_packet = await self._run_stage(
-                PipelineStage.FUSION,
-                current_packet,
-                self._fusion_stage
+                PipelineStage.FUSION, current_packet, self._fusion_stage
             )
             stage_times["fusion"] = (time.perf_counter() - stage_start) * 1000
             stages_completed.append(PipelineStage.FUSION)
@@ -175,9 +156,7 @@ class EvidencePipeline:
             # Stage 5: Output
             stage_start = time.perf_counter()
             current_packet = await self._run_stage(
-                PipelineStage.OUTPUT,
-                current_packet,
-                self._output_stage
+                PipelineStage.OUTPUT, current_packet, self._output_stage
             )
             stage_times["output"] = (time.perf_counter() - stage_start) * 1000
             stages_completed.append(PipelineStage.OUTPUT)
@@ -196,8 +175,7 @@ class EvidencePipeline:
         self._metrics["total_time_ms"] += total_time
 
         logger.info(
-            f"Pipeline {'completed' if success else 'failed'} for {packet.id} "
-            f"in {total_time:.2f}ms"
+            f"Pipeline {'completed' if success else 'failed'} for {packet.id} in {total_time:.2f}ms"
         )
 
         return PipelineResult(
@@ -206,16 +184,13 @@ class EvidencePipeline:
             stages_completed=stages_completed,
             total_time_ms=total_time,
             stage_times=stage_times,
-            errors=errors
+            errors=errors,
         )
 
     async def process_batch(
-        self,
-        packets: List[EvidencePacket],
-        parallel: bool = True
-    ) -> List[PipelineResult]:
-        """
-        Process multiple packets.
+        self, packets: list[EvidencePacket], parallel: bool = True
+    ) -> list[PipelineResult]:
+        """Process multiple packets.
 
         Args:
             packets: List of packets to process
@@ -226,31 +201,28 @@ class EvidencePipeline:
 
         if parallel:
             results = await asyncio.gather(
-                *[self.process(p) for p in packets],
-                return_exceptions=True
+                *[self.process(p) for p in packets], return_exceptions=True
             )
             # Handle exceptions
             processed = []
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
-                    processed.append(PipelineResult(
-                        packet=packets[i],
-                        success=False,
-                        stages_completed=[],
-                        total_time_ms=0,
-                        errors=[str(result)]
-                    ))
+                    processed.append(
+                        PipelineResult(
+                            packet=packets[i],
+                            success=False,
+                            stages_completed=[],
+                            total_time_ms=0,
+                            errors=[str(result)],
+                        )
+                    )
                 else:
                     processed.append(result)
             return processed
-        else:
-            return [await self.process(p) for p in packets]
+        return [await self.process(p) for p in packets]
 
     async def _run_stage(
-        self,
-        stage: PipelineStage,
-        packet: EvidencePacket,
-        stage_func: Callable
+        self, stage: PipelineStage, packet: EvidencePacket, stage_func: Callable
     ) -> EvidencePacket:
         """Run a pipeline stage with hooks."""
         # Pre-hooks
@@ -284,7 +256,7 @@ class EvidencePipeline:
         if packet.evidence_type == EvidenceType.TEXT:
             if packet.raw_content:
                 try:
-                    packet.raw_content.decode('utf-8')
+                    packet.raw_content.decode("utf-8")
                     return False
                 except UnicodeDecodeError:
                     pass
@@ -293,7 +265,7 @@ class EvidencePipeline:
         return packet.evidence_type in [
             EvidenceType.IMAGE,
             EvidenceType.DOCUMENT,
-            EvidenceType.MIXED
+            EvidenceType.MIXED,
         ]
 
     async def _ocr_stage(self, packet: EvidencePacket) -> EvidencePacket:
@@ -316,28 +288,19 @@ class EvidencePipeline:
 
         return packet.with_updates(stage=ProcessingStage.VALIDATED)
 
-    def add_hook(
-        self,
-        stage: PipelineStage,
-        hook: Callable,
-        pre: bool = True
-    ) -> None:
+    def add_hook(self, stage: PipelineStage, hook: Callable, pre: bool = True) -> None:
         """Add a pre or post hook to a stage."""
         if pre:
             self._pre_hooks[stage].append(hook)
         else:
             self._post_hooks[stage].append(hook)
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """Get pipeline metrics."""
         metrics = self._metrics.copy()
         if metrics["packets_processed"] > 0:
-            metrics["avg_time_ms"] = (
-                metrics["total_time_ms"] / metrics["packets_processed"]
-            )
-            metrics["success_rate"] = (
-                metrics["successful"] / metrics["packets_processed"]
-            )
+            metrics["avg_time_ms"] = metrics["total_time_ms"] / metrics["packets_processed"]
+            metrics["success_rate"] = metrics["successful"] / metrics["packets_processed"]
         return metrics
 
     async def shutdown(self) -> None:
@@ -357,12 +320,9 @@ class EvidencePipeline:
 
 # Convenience function for quick processing
 async def process_evidence(
-    content: bytes,
-    evidence_type: EvidenceType = EvidenceType.TEXT,
-    case_id: Optional[str] = None
+    content: bytes, evidence_type: EvidenceType = EvidenceType.TEXT, case_id: str | None = None
 ) -> PipelineResult:
-    """
-    Quick function to process evidence through the full pipeline.
+    """Quick function to process evidence through the full pipeline.
 
     Args:
         content: Raw evidence content
@@ -372,11 +332,7 @@ async def process_evidence(
     Returns:
         PipelineResult with processed evidence
     """
-    packet = EvidencePacket(
-        raw_content=content,
-        evidence_type=evidence_type,
-        case_id=case_id
-    )
+    packet = EvidencePacket(raw_content=content, evidence_type=evidence_type, case_id=case_id)
 
     pipeline = EvidencePipeline()
     try:

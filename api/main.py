@@ -1,7 +1,7 @@
-"""
-Evidence Suite - FastAPI Application
+"""Evidence Suite - FastAPI Application
 Forensic behavioral intelligence REST API.
 """
+
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -10,18 +10,19 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from api.middleware import (
+    CompressionMiddleware,
+    RequestLoggingMiddleware,
+    RequestTimeoutMiddleware,
+    SecurityHeadersMiddleware,
+)
 from core.config import api_settings, db_settings
 from core.database.session import init_db_async
 from core.logging import configure_logging, get_logger
-from api.middleware import (
-    RequestLoggingMiddleware,
-    SecurityHeadersMiddleware,
-    RequestTimeoutMiddleware,
-    CompressionMiddleware,
-)
 
 
 @asynccontextmanager
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI):
     # Initialize Redis cache
     try:
         from core.cache import get_cache
+
         cache = await get_cache()
         if cache.is_connected:
             logger.info("Redis cache connected")
@@ -64,6 +66,7 @@ async def lifespan(app: FastAPI):
     # Close cache connection
     try:
         from core.cache import close_cache
+
         await close_cache()
     except Exception:
         pass
@@ -102,9 +105,10 @@ app.add_middleware(RequestLoggingMiddleware)
 
 
 # Import and include routers
-from api.routes import cases_router, evidence_router, analysis_router
 from api.auth import router as auth_router
+from api.routes import analysis_router, cases_router, evidence_router
 from api.websocket import router as websocket_router
+
 
 app.include_router(cases_router, prefix="/api/v1")
 app.include_router(evidence_router, prefix="/api/v1")
@@ -131,13 +135,8 @@ async def health_check():
 
     health = {
         "status": "healthy",
-        "database": {
-            "host": db_settings.host,
-            "status": "unknown"
-        },
-        "cache": {
-            "status": "unknown"
-        }
+        "database": {"host": db_settings.host, "status": "unknown"},
+        "cache": {"status": "unknown"},
     }
 
     # Check database
@@ -153,6 +152,7 @@ async def health_check():
     # Check cache
     try:
         from core.cache import get_cache
+
         cache = await get_cache()
         health["cache"]["status"] = "connected" if cache.is_connected else "disconnected"
     except Exception as e:
@@ -176,7 +176,7 @@ async def database_health():
         "health": monitor.get_health(),
         "query_stats": monitor.get_query_stats(),
         "slow_queries": monitor.get_slow_queries(limit=5),
-        "recent_errors": monitor.get_errors(limit=5)
+        "recent_errors": monitor.get_errors(limit=5),
     }
 
 
@@ -193,7 +193,7 @@ async def get_metrics():
         monitor = get_monitor()
         log_metrics["database"] = {
             "pool": monitor.get_pool_stats(),
-            "queries": monitor.get_query_stats()
+            "queries": monitor.get_query_stats(),
         }
     except Exception:
         log_metrics["database"] = {"status": "unavailable"}
@@ -206,7 +206,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler."""
     logger = get_logger()
     logger.error(
-        f"Unhandled exception: {str(exc)}",
+        f"Unhandled exception: {exc!s}",
         path=request.url.path,
         method=request.method,
     )
@@ -221,6 +221,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "api.main:app",
         host=api_settings.host,

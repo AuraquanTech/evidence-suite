@@ -1,34 +1,30 @@
-"""
-Evidence Suite - Audio Agent
+"""Evidence Suite - Audio Agent
 Whisper-based transcription with Pyannote speaker diarization.
 """
-from __future__ import annotations
-import io
-import tempfile
-import os
-from typing import Any, Dict, List, Optional, Tuple
-from loguru import logger
-import numpy as np
 
-from core.models import (
-    EvidencePacket,
-    AnalysisResult,
-    ProcessingStage,
-    EvidenceType
-)
-from core.config import default_config, hw_settings
+from __future__ import annotations
+
+import os
+import tempfile
+from typing import Any
+
+import numpy as np
+from loguru import logger
+
 from agents.base import BaseAgent
+from core.models import AnalysisResult, EvidencePacket, EvidenceType, ProcessingStage
 
 
 class AudioConfig:
     """Audio Agent configuration."""
+
     def __init__(
         self,
         whisper_model: str = "base",
-        language: Optional[str] = None,
+        language: str | None = None,
         enable_diarization: bool = True,
         device: str = "auto",
-        batch_size: int = 16
+        batch_size: int = 16,
     ):
         self.whisper_model = whisper_model  # tiny, base, small, medium, large
         self.language = language  # None = auto-detect
@@ -37,13 +33,13 @@ class AudioConfig:
         self.batch_size = batch_size
 
 
-def _check_gpu_for_whisper() -> Tuple[bool, str]:
-    """
-    Check if GPU is available for Whisper.
+def _check_gpu_for_whisper() -> tuple[bool, str]:
+    """Check if GPU is available for Whisper.
     Whisper uses PyTorch, which doesn't support Blackwell (sm_120).
     """
     try:
         import torch
+
         if not torch.cuda.is_available():
             return False, "CUDA not available"
 
@@ -62,8 +58,7 @@ def _check_gpu_for_whisper() -> Tuple[bool, str]:
 
 
 class AudioAgent(BaseAgent):
-    """
-    Sensory layer agent for audio transcription and analysis.
+    """Sensory layer agent for audio transcription and analysis.
 
     Features:
     - OpenAI Whisper transcription (multiple model sizes)
@@ -73,11 +68,7 @@ class AudioAgent(BaseAgent):
     - Timestamp alignment
     """
 
-    def __init__(
-        self,
-        agent_id: Optional[str] = None,
-        config: Optional[AudioConfig] = None
-    ):
+    def __init__(self, agent_id: str | None = None, config: AudioConfig | None = None):
         self.audio_config = config or AudioConfig()
         super().__init__(
             agent_id=agent_id,
@@ -86,7 +77,7 @@ class AudioAgent(BaseAgent):
                 "whisper_model": self.audio_config.whisper_model,
                 "language": self.audio_config.language,
                 "enable_diarization": self.audio_config.enable_diarization,
-            }
+            },
         )
         self._whisper_model = None
         self._diarization_pipeline = None
@@ -114,10 +105,7 @@ class AudioAgent(BaseAgent):
             model_name = self.audio_config.whisper_model
             logger.info(f"Loading Whisper model: {model_name}")
 
-            self._whisper_model = whisper.load_model(
-                model_name,
-                device=self._device
-            )
+            self._whisper_model = whisper.load_model(model_name, device=self._device)
             logger.info(f"Whisper {model_name} loaded on {self._device}")
 
         except ImportError:
@@ -136,11 +124,11 @@ class AudioAgent(BaseAgent):
 
             if hf_token:
                 self._diarization_pipeline = Pipeline.from_pretrained(
-                    "pyannote/speaker-diarization-3.1",
-                    use_auth_token=hf_token
+                    "pyannote/speaker-diarization-3.1", use_auth_token=hf_token
                 )
                 if self._device == "cuda":
                     import torch
+
                     self._diarization_pipeline.to(torch.device("cuda"))
                 logger.info("Pyannote diarization pipeline loaded")
             else:
@@ -155,8 +143,7 @@ class AudioAgent(BaseAgent):
             self.audio_config.enable_diarization = False
 
     async def _process_impl(self, packet: EvidencePacket) -> EvidencePacket:
-        """
-        Process audio evidence.
+        """Process audio evidence.
 
         Steps:
         1. Save audio to temp file
@@ -208,15 +195,17 @@ class AudioAgent(BaseAgent):
                     "duration_seconds": self._get_audio_duration(transcription),
                     "word_count": len(full_text.split()),
                     "segment_count": len(transcription.get("segments", [])),
-                    "speaker_count": len(set(
-                        s.get("speaker", "unknown") for s in merged_transcript
-                    )) if diarization else 1,
+                    "speaker_count": len(
+                        set(s.get("speaker", "unknown") for s in merged_transcript)
+                    )
+                    if diarization
+                    else 1,
                     "diarization_enabled": self.audio_config.enable_diarization,
                 },
                 raw_output={
                     "segments": merged_transcript,
                     "language_probability": transcription.get("language_probability", 0),
-                }
+                },
             )
 
             return packet.with_updates(
@@ -228,8 +217,8 @@ class AudioAgent(BaseAgent):
                     "audio_transcription": {
                         "language": transcription.get("language"),
                         "segments": merged_transcript,
-                    }
-                }
+                    },
+                },
             )
 
         finally:
@@ -237,40 +226,28 @@ class AudioAgent(BaseAgent):
             if os.path.exists(audio_path):
                 os.unlink(audio_path)
 
-    async def _transcribe(self, audio_path: str) -> Dict[str, Any]:
+    async def _transcribe(self, audio_path: str) -> dict[str, Any]:
         """Transcribe audio with Whisper."""
-        import whisper
-
         result = self._whisper_model.transcribe(
-            audio_path,
-            language=self.audio_config.language,
-            word_timestamps=True,
-            verbose=False
+            audio_path, language=self.audio_config.language, word_timestamps=True, verbose=False
         )
 
         return result
 
-    async def _diarize(self, audio_path: str) -> List[Dict[str, Any]]:
+    async def _diarize(self, audio_path: str) -> list[dict[str, Any]]:
         """Run speaker diarization."""
         diarization = self._diarization_pipeline(audio_path)
 
         segments = []
         for turn, _, speaker in diarization.itertracks(yield_label=True):
-            segments.append({
-                "start": turn.start,
-                "end": turn.end,
-                "speaker": speaker
-            })
+            segments.append({"start": turn.start, "end": turn.end, "speaker": speaker})
 
         return segments
 
     def _merge_transcription_diarization(
-        self,
-        transcription: Dict[str, Any],
-        diarization: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """
-        Merge transcription segments with speaker labels.
+        self, transcription: dict[str, Any], diarization: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Merge transcription segments with speaker labels.
         Assigns each transcription segment to the speaker with the most overlap.
         """
         merged = []
@@ -292,16 +269,18 @@ class AudioAgent(BaseAgent):
                     best_overlap = overlap
                     best_speaker = diar_seg["speaker"]
 
-            merged.append({
-                "start": seg_start,
-                "end": seg_end,
-                "text": segment["text"],
-                "speaker": best_speaker,
-            })
+            merged.append(
+                {
+                    "start": seg_start,
+                    "end": seg_end,
+                    "text": segment["text"],
+                    "speaker": best_speaker,
+                }
+            )
 
         return merged
 
-    def _calculate_confidence(self, transcription: Dict[str, Any]) -> float:
+    def _calculate_confidence(self, transcription: dict[str, Any]) -> float:
         """Calculate transcription confidence."""
         # Use language detection probability as base
         lang_prob = transcription.get("language_probability", 0.5)
@@ -311,17 +290,15 @@ class AudioAgent(BaseAgent):
         if segments:
             # Whisper doesn't directly provide per-segment confidence,
             # but we can use the compression ratio as a proxy
-            avg_compression = np.mean([
-                s.get("compression_ratio", 1.0) for s in segments
-            ])
+            avg_compression = np.mean([s.get("compression_ratio", 1.0) for s in segments])
             # Lower compression ratio often means cleaner speech
             compression_score = min(1.0, 2.0 / max(avg_compression, 0.5))
         else:
             compression_score = 0.5
 
-        return (lang_prob * 0.4 + compression_score * 0.6)
+        return lang_prob * 0.4 + compression_score * 0.6
 
-    def _get_audio_duration(self, transcription: Dict[str, Any]) -> float:
+    def _get_audio_duration(self, transcription: dict[str, Any]) -> float:
         """Get audio duration from transcription."""
         segments = transcription.get("segments", [])
         if segments:

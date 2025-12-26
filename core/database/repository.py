@@ -1,23 +1,26 @@
-"""
-Evidence Suite - Database Repository Pattern
+"""Evidence Suite - Database Repository Pattern
 Optimized query methods with proper eager loading and caching.
 """
-from datetime import datetime
-from typing import Optional, List, Tuple, Dict, Any, TypeVar, Generic
+
+from typing import Any, Generic, TypeVar
 from uuid import UUID
 
-from sqlalchemy import select, func, and_, or_, desc
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 from .models import (
-    Case, CaseStatus,
-    EvidenceRecord, EvidenceStatus, EvidenceTypeDB,
-    ChainOfCustodyLog, AnalysisResult, AnalysisJob,
-    User, AuditLog
+    AnalysisJob,
+    Case,
+    CaseStatus,
+    ChainOfCustodyLog,
+    EvidenceRecord,
+    EvidenceStatus,
+    EvidenceTypeDB,
 )
 
-T = TypeVar('T')
+
+T = TypeVar("T")
 
 
 class BaseRepository(Generic[T]):
@@ -27,11 +30,9 @@ class BaseRepository(Generic[T]):
         self.db = db
         self.model = model
 
-    async def get_by_id(self, id: UUID) -> Optional[T]:
+    async def get_by_id(self, id: UUID) -> T | None:
         """Get entity by ID."""
-        result = await self.db.execute(
-            select(self.model).where(self.model.id == id)
-        )
+        result = await self.db.execute(select(self.model).where(self.model.id == id))
         return result.scalar_one_or_none()
 
     async def get_paginated(
@@ -40,8 +41,8 @@ class BaseRepository(Generic[T]):
         page_size: int = 20,
         order_by: str = "created_at",
         desc_order: bool = True,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> Tuple[List[T], int]:
+        filters: dict[str, Any] | None = None,
+    ) -> tuple[list[T], int]:
         """Get paginated results with total count in single query."""
         query = select(self.model)
 
@@ -77,13 +78,10 @@ class CaseRepository(BaseRepository[Case]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, Case)
 
-    async def get_with_evidence_count(self, case_id: UUID) -> Optional[Tuple[Case, int]]:
+    async def get_with_evidence_count(self, case_id: UUID) -> tuple[Case, int] | None:
         """Get case with evidence count in single query."""
         query = (
-            select(
-                Case,
-                func.count(EvidenceRecord.id).label("evidence_count")
-            )
+            select(Case, func.count(EvidenceRecord.id).label("evidence_count"))
             .outerjoin(EvidenceRecord, EvidenceRecord.case_id == Case.id)
             .where(Case.id == case_id)
             .group_by(Case.id)
@@ -94,42 +92,30 @@ class CaseRepository(BaseRepository[Case]):
             return row[0], row[1]
         return None
 
-    async def get_by_case_number(self, case_number: str) -> Optional[Case]:
+    async def get_by_case_number(self, case_number: str) -> Case | None:
         """Get case by case number (indexed lookup)."""
-        result = await self.db.execute(
-            select(Case).where(Case.case_number == case_number)
-        )
+        result = await self.db.execute(select(Case).where(Case.case_number == case_number))
         return result.scalar_one_or_none()
 
     async def list_with_evidence_counts(
         self,
         page: int = 1,
         page_size: int = 20,
-        status: Optional[CaseStatus] = None,
-        search: Optional[str] = None
-    ) -> Tuple[List[Tuple[Case, int]], int]:
+        status: CaseStatus | None = None,
+        search: str | None = None,
+    ) -> tuple[list[tuple[Case, int]], int]:
         """List cases with evidence counts - optimized single query."""
         # Subquery for evidence counts
         evidence_count_subq = (
-            select(
-                EvidenceRecord.case_id,
-                func.count(EvidenceRecord.id).label("count")
-            )
+            select(EvidenceRecord.case_id, func.count(EvidenceRecord.id).label("count"))
             .group_by(EvidenceRecord.case_id)
             .subquery()
         )
 
         # Main query with LEFT JOIN to count subquery
-        query = (
-            select(
-                Case,
-                func.coalesce(evidence_count_subq.c.count, 0).label("evidence_count")
-            )
-            .outerjoin(
-                evidence_count_subq,
-                Case.id == evidence_count_subq.c.case_id
-            )
-        )
+        query = select(
+            Case, func.coalesce(evidence_count_subq.c.count, 0).label("evidence_count")
+        ).outerjoin(evidence_count_subq, Case.id == evidence_count_subq.c.case_id)
 
         # Apply filters
         if status:
@@ -138,17 +124,12 @@ class CaseRepository(BaseRepository[Case]):
         if search:
             search_pattern = f"%{search}%"
             query = query.where(
-                or_(
-                    Case.title.ilike(search_pattern),
-                    Case.case_number.ilike(search_pattern)
-                )
+                or_(Case.title.ilike(search_pattern), Case.case_number.ilike(search_pattern))
             )
 
         # Count total (before pagination)
         count_subq = query.subquery()
-        total = (await self.db.execute(
-            select(func.count()).select_from(count_subq)
-        )).scalar() or 0
+        total = (await self.db.execute(select(func.count()).select_from(count_subq))).scalar() or 0
 
         # Apply ordering and pagination
         query = query.order_by(desc(Case.created_at))
@@ -159,23 +140,17 @@ class CaseRepository(BaseRepository[Case]):
 
         return [(row[0], row[1]) for row in rows], total
 
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """Get case statistics in single query."""
         result = await self.db.execute(
-            select(
-                Case.status,
-                func.count(Case.id).label("count")
-            ).group_by(Case.status)
+            select(Case.status, func.count(Case.id).label("count")).group_by(Case.status)
         )
 
         stats = {status.value: 0 for status in CaseStatus}
         for row in result:
             stats[row.status.value] = row.count
 
-        return {
-            "by_status": stats,
-            "total": sum(stats.values())
-        }
+        return {"by_status": stats, "total": sum(stats.values())}
 
 
 class EvidenceRepository(BaseRepository[EvidenceRecord]):
@@ -184,7 +159,7 @@ class EvidenceRepository(BaseRepository[EvidenceRecord]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, EvidenceRecord)
 
-    async def get_with_custody(self, evidence_id: UUID) -> Optional[EvidenceRecord]:
+    async def get_with_custody(self, evidence_id: UUID) -> EvidenceRecord | None:
         """Get evidence with custody entries (eager loaded)."""
         result = await self.db.execute(
             select(EvidenceRecord)
@@ -193,7 +168,7 @@ class EvidenceRepository(BaseRepository[EvidenceRecord]):
         )
         return result.scalar_one_or_none()
 
-    async def get_with_analysis(self, evidence_id: UUID) -> Optional[EvidenceRecord]:
+    async def get_with_analysis(self, evidence_id: UUID) -> EvidenceRecord | None:
         """Get evidence with analysis results (eager loaded)."""
         result = await self.db.execute(
             select(EvidenceRecord)
@@ -202,27 +177,24 @@ class EvidenceRepository(BaseRepository[EvidenceRecord]):
         )
         return result.scalar_one_or_none()
 
-    async def get_full(self, evidence_id: UUID) -> Optional[EvidenceRecord]:
+    async def get_full(self, evidence_id: UUID) -> EvidenceRecord | None:
         """Get evidence with all relationships (eager loaded)."""
         result = await self.db.execute(
             select(EvidenceRecord)
             .options(
                 selectinload(EvidenceRecord.custody_entries),
                 selectinload(EvidenceRecord.analysis_results),
-                joinedload(EvidenceRecord.case)
+                joinedload(EvidenceRecord.case),
             )
             .where(EvidenceRecord.id == evidence_id)
         )
         return result.scalar_one_or_none()
 
-    async def get_by_hash(self, case_id: UUID, file_hash: str) -> Optional[EvidenceRecord]:
+    async def get_by_hash(self, case_id: UUID, file_hash: str) -> EvidenceRecord | None:
         """Check for duplicate evidence by hash (indexed lookup)."""
         result = await self.db.execute(
             select(EvidenceRecord).where(
-                and_(
-                    EvidenceRecord.case_id == case_id,
-                    EvidenceRecord.original_hash == file_hash
-                )
+                and_(EvidenceRecord.case_id == case_id, EvidenceRecord.original_hash == file_hash)
             )
         )
         return result.scalar_one_or_none()
@@ -230,11 +202,11 @@ class EvidenceRepository(BaseRepository[EvidenceRecord]):
     async def list_by_case(
         self,
         case_id: UUID,
-        status: Optional[EvidenceStatus] = None,
-        evidence_type: Optional[EvidenceTypeDB] = None,
+        status: EvidenceStatus | None = None,
+        evidence_type: EvidenceTypeDB | None = None,
         page: int = 1,
-        page_size: int = 20
-    ) -> Tuple[List[EvidenceRecord], int]:
+        page_size: int = 20,
+    ) -> tuple[list[EvidenceRecord], int]:
         """List evidence for a case with optional filters."""
         query = select(EvidenceRecord).where(EvidenceRecord.case_id == case_id)
 
@@ -245,9 +217,7 @@ class EvidenceRepository(BaseRepository[EvidenceRecord]):
 
         # Count total
         count_subq = query.subquery()
-        total = (await self.db.execute(
-            select(func.count()).select_from(count_subq)
-        )).scalar() or 0
+        total = (await self.db.execute(select(func.count()).select_from(count_subq))).scalar() or 0
 
         # Apply pagination
         query = query.order_by(desc(EvidenceRecord.created_at))
@@ -258,7 +228,7 @@ class EvidenceRepository(BaseRepository[EvidenceRecord]):
 
         return list(items), total
 
-    async def get_pending_analysis(self, limit: int = 100) -> List[EvidenceRecord]:
+    async def get_pending_analysis(self, limit: int = 100) -> list[EvidenceRecord]:
         """Get evidence pending analysis (batch processing)."""
         result = await self.db.execute(
             select(EvidenceRecord)
@@ -268,11 +238,7 @@ class EvidenceRepository(BaseRepository[EvidenceRecord]):
         )
         return list(result.scalars().all())
 
-    async def bulk_update_status(
-        self,
-        evidence_ids: List[UUID],
-        new_status: EvidenceStatus
-    ) -> int:
+    async def bulk_update_status(self, evidence_ids: list[UUID], new_status: EvidenceStatus) -> int:
         """Bulk update evidence status (efficient batch operation)."""
         from sqlalchemy import update
 
@@ -285,12 +251,9 @@ class EvidenceRepository(BaseRepository[EvidenceRecord]):
         await self.db.commit()
         return result.rowcount
 
-    async def get_statistics(self, case_id: Optional[UUID] = None) -> Dict[str, Any]:
+    async def get_statistics(self, case_id: UUID | None = None) -> dict[str, Any]:
         """Get evidence statistics."""
-        query = select(
-            EvidenceRecord.status,
-            func.count(EvidenceRecord.id).label("count")
-        )
+        query = select(EvidenceRecord.status, func.count(EvidenceRecord.id).label("count"))
 
         if case_id:
             query = query.where(EvidenceRecord.case_id == case_id)
@@ -303,10 +266,7 @@ class EvidenceRepository(BaseRepository[EvidenceRecord]):
         for row in result:
             stats[row.status.value] = row.count
 
-        return {
-            "by_status": stats,
-            "total": sum(stats.values())
-        }
+        return {"by_status": stats, "total": sum(stats.values())}
 
 
 class AnalysisJobRepository(BaseRepository[AnalysisJob]):
@@ -315,7 +275,7 @@ class AnalysisJobRepository(BaseRepository[AnalysisJob]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, AnalysisJob)
 
-    async def get_by_evidence_id(self, evidence_id: UUID) -> Optional[AnalysisJob]:
+    async def get_by_evidence_id(self, evidence_id: UUID) -> AnalysisJob | None:
         """Get latest job for evidence."""
         result = await self.db.execute(
             select(AnalysisJob)
@@ -325,7 +285,7 @@ class AnalysisJobRepository(BaseRepository[AnalysisJob]):
         )
         return result.scalar_one_or_none()
 
-    async def get_pending_jobs(self, limit: int = 100) -> List[AnalysisJob]:
+    async def get_pending_jobs(self, limit: int = 100) -> list[AnalysisJob]:
         """Get pending jobs for processing."""
         result = await self.db.execute(
             select(AnalysisJob)
@@ -335,20 +295,17 @@ class AnalysisJobRepository(BaseRepository[AnalysisJob]):
         )
         return list(result.scalars().all())
 
-    async def get_running_jobs(self) -> List[AnalysisJob]:
+    async def get_running_jobs(self) -> list[AnalysisJob]:
         """Get currently running jobs."""
-        result = await self.db.execute(
-            select(AnalysisJob).where(AnalysisJob.status == "running")
-        )
+        result = await self.db.execute(select(AnalysisJob).where(AnalysisJob.status == "running"))
         return list(result.scalars().all())
 
-    async def get_job_statistics(self) -> Dict[str, int]:
+    async def get_job_statistics(self) -> dict[str, int]:
         """Get job statistics by status."""
         result = await self.db.execute(
-            select(
-                AnalysisJob.status,
-                func.count(AnalysisJob.id).label("count")
-            ).group_by(AnalysisJob.status)
+            select(AnalysisJob.status, func.count(AnalysisJob.id).label("count")).group_by(
+                AnalysisJob.status
+            )
         )
 
         return {row.status: row.count for row in result}
@@ -361,10 +318,8 @@ class ChainOfCustodyRepository(BaseRepository[ChainOfCustodyLog]):
         super().__init__(db, ChainOfCustodyLog)
 
     async def get_by_evidence(
-        self,
-        evidence_id: UUID,
-        limit: Optional[int] = None
-    ) -> List[ChainOfCustodyLog]:
+        self, evidence_id: UUID, limit: int | None = None
+    ) -> list[ChainOfCustodyLog]:
         """Get custody entries for evidence, ordered by timestamp."""
         query = (
             select(ChainOfCustodyLog)
@@ -401,9 +356,9 @@ class ChainOfCustodyRepository(BaseRepository[ChainOfCustodyLog]):
         action: str,
         input_hash: str,
         output_hash: str,
-        processing_time_ms: Optional[float] = None,
+        processing_time_ms: float | None = None,
         success: bool = True,
-        error_message: Optional[str] = None
+        error_message: str | None = None,
     ) -> ChainOfCustodyLog:
         """Add new custody entry."""
         entry = ChainOfCustodyLog(

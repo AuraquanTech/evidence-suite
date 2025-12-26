@@ -1,17 +1,18 @@
-"""
-Evidence Suite - Pipeline Runner
+"""Evidence Suite - Pipeline Runner
 Run the first agent pipeline with sample data.
 """
+
 import asyncio
 import sys
-import json
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from loguru import logger
+
 from core.models import EvidencePacket, EvidenceType
 from pipeline import EvidencePipeline, PipelineResult
 
@@ -21,7 +22,7 @@ logger.remove()
 logger.add(
     sys.stderr,
     format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan> | {message}",
-    level="INFO"
+    level="INFO",
 )
 
 
@@ -33,14 +34,12 @@ SAMPLE_TEXTS = {
     Let me know if you have any questions about the next steps.
     Looking forward to our next discussion.
     """,
-
     "darvo_pattern": """
     I can't believe you're accusing me of this! You always blame me for everything.
     It's YOUR fault this happened in the first place. You made me react that way.
     I'm the real victim here. After everything I've done for you, this is how you treat me?
     You're the one who needs to apologize. Look what you did to our relationship!
     """,
-
     "gaslighting_pattern": """
     That never happened. You're imagining things again.
     You're being way too sensitive about this. Nobody else thinks there's a problem.
@@ -48,7 +47,6 @@ SAMPLE_TEXTS = {
     You're crazy if you think that's what occurred. Trust me, I know what really happened.
     Maybe you should see someone about your memory issues.
     """,
-
     "manipulation_pattern": """
     If you really loved me, you wouldn't question this.
     After all I've done for you, you owe me this much.
@@ -56,7 +54,6 @@ SAMPLE_TEXTS = {
     You're lucky I'm still here. Don't tell anyone about our conversation.
     This is your fault, and you need to fix it.
     """,
-
     "mixed_patterns": """
     I can't believe you're bringing this up again. You always do this.
     That conversation never happened the way you remember it.
@@ -64,7 +61,7 @@ SAMPLE_TEXTS = {
     If you cared about me at all, you'd stop asking these questions.
     You made me act that way - look what you did to us!
     No one would believe you anyway. You're imagining things.
-    """
+    """,
 }
 
 
@@ -89,21 +86,21 @@ def format_result(result: PipelineResult) -> str:
 
     if packet.behavioral_indicators:
         bi = packet.behavioral_indicators
-        lines.extend([
-            f"  Sentiment (compound): {bi.sentiment_compound:.3f}",
-            f"  DARVO Score: {bi.darvo_score:.3f}",
-            f"  Gaslighting Score: {bi.gaslighting_score:.3f}",
-            f"  Manipulation Score: {bi.manipulation_score:.3f}",
-            f"  Deception Indicators: {bi.deception_indicators:.3f}",
-            f"  Primary Behavior: {bi.primary_behavior_class}",
-        ])
+        lines.extend(
+            [
+                f"  Sentiment (compound): {bi.sentiment_compound:.3f}",
+                f"  DARVO Score: {bi.darvo_score:.3f}",
+                f"  Gaslighting Score: {bi.gaslighting_score:.3f}",
+                f"  Manipulation Score: {bi.manipulation_score:.3f}",
+                f"  Deception Indicators: {bi.deception_indicators:.3f}",
+                f"  Primary Behavior: {bi.primary_behavior_class}",
+            ]
+        )
 
         if bi.behavior_probabilities:
             lines.append("  Behavior Probabilities:")
             for behavior, prob in sorted(
-                bi.behavior_probabilities.items(),
-                key=lambda x: x[1],
-                reverse=True
+                bi.behavior_probabilities.items(), key=lambda x: x[1], reverse=True
             ):
                 lines.append(f"    {behavior}: {prob:.3f}")
     else:
@@ -111,10 +108,14 @@ def format_result(result: PipelineResult) -> str:
 
     lines.append("-" * 60)
     lines.append("FUSION RESULTS:")
-    lines.extend([
-        f"  Fused Score: {packet.fused_score:.3f}" if packet.fused_score else "  Fused Score: N/A",
-        f"  Classification: {packet.fused_classification or 'N/A'}",
-    ])
+    lines.extend(
+        [
+            f"  Fused Score: {packet.fused_score:.3f}"
+            if packet.fused_score
+            else "  Fused Score: N/A",
+            f"  Classification: {packet.fused_classification or 'N/A'}",
+        ]
+    )
 
     if packet.fusion_metadata:
         consistency = packet.fusion_metadata.get("consistency", {})
@@ -141,18 +142,14 @@ def format_result(result: PipelineResult) -> str:
     return "\n".join(lines)
 
 
-async def run_single_test(
-    pipeline: EvidencePipeline,
-    name: str,
-    text: str
-) -> PipelineResult:
+async def run_single_test(pipeline: EvidencePipeline, name: str, text: str) -> PipelineResult:
     """Run a single test case."""
     logger.info(f"Processing: {name}")
 
     packet = EvidencePacket(
-        raw_content=text.encode('utf-8'),
+        raw_content=text.encode("utf-8"),
         evidence_type=EvidenceType.TEXT,
-        case_id=f"test_{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        case_id=f"test_{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
     )
 
     result = await pipeline.process(packet, skip_ocr=True)
@@ -187,9 +184,13 @@ async def main():
                 "success": result.success,
                 "fused_score": result.packet.fused_score,
                 "classification": result.packet.fused_classification,
-                "darvo": result.packet.behavioral_indicators.darvo_score if result.packet.behavioral_indicators else None,
-                "gaslighting": result.packet.behavioral_indicators.gaslighting_score if result.packet.behavioral_indicators else None,
-                "time_ms": result.total_time_ms
+                "darvo": result.packet.behavioral_indicators.darvo_score
+                if result.packet.behavioral_indicators
+                else None,
+                "gaslighting": result.packet.behavioral_indicators.gaslighting_score
+                if result.packet.behavioral_indicators
+                else None,
+                "time_ms": result.total_time_ms,
             }
 
         # Summary
@@ -201,10 +202,14 @@ async def main():
             status = "PASS" if data["success"] else "FAIL"
             print(f"\n{name}:")
             print(f"  Status: {status}")
-            print(f"  Score: {data['fused_score']:.3f}" if data['fused_score'] else "  Score: N/A")
+            print(f"  Score: {data['fused_score']:.3f}" if data["fused_score"] else "  Score: N/A")
             print(f"  Class: {data['classification']}")
-            print(f"  DARVO: {data['darvo']:.3f}" if data['darvo'] else "  DARVO: N/A")
-            print(f"  Gaslighting: {data['gaslighting']:.3f}" if data['gaslighting'] else "  Gaslighting: N/A")
+            print(f"  DARVO: {data['darvo']:.3f}" if data["darvo"] else "  DARVO: N/A")
+            print(
+                f"  Gaslighting: {data['gaslighting']:.3f}"
+                if data["gaslighting"]
+                else "  Gaslighting: N/A"
+            )
             print(f"  Time: {data['time_ms']:.2f}ms")
 
         # Pipeline metrics

@@ -1,22 +1,32 @@
-"""
-Evidence Suite - Database Models
+"""Evidence Suite - Database Models
 SQLAlchemy ORM models for FRE-compliant evidence storage.
 Supports PostgreSQL (production) and SQLite (testing).
 """
+
 import os
 from datetime import datetime
 from enum import Enum as PyEnum
-from typing import Optional, Dict, Any, List
 from uuid import uuid4
 
 from sqlalchemy import (
-    Column, String, DateTime, Float, Boolean, Text, BigInteger,
-    ForeignKey, Enum, JSON, LargeBinary, Index, TypeDecorator
+    JSON,
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    TypeDecorator,
 )
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import relationship
-from sqlalchemy.types import CHAR, TypeDecorator as TD
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.types import CHAR
+
 
 Base = declarative_base()
 
@@ -28,45 +38,40 @@ class GUID(TypeDecorator):
     """Platform-independent GUID type.
     Uses PostgreSQL's UUID type when available, otherwise stores as CHAR(36).
     """
+
     impl = CHAR
     cache_ok = True
 
     def load_dialect_impl(self, dialect):
-        if dialect.name == 'postgresql':
+        if dialect.name == "postgresql":
             return dialect.type_descriptor(PG_UUID(as_uuid=True))
-        else:
-            return dialect.type_descriptor(CHAR(36))
+        return dialect.type_descriptor(CHAR(36))
 
     def process_bind_param(self, value, dialect):
-        if value is None:
+        if value is None or dialect.name == "postgresql":
             return value
-        elif dialect.name == 'postgresql':
-            return value
-        else:
-            return str(value)
+        return str(value)
 
     def process_result_value(self, value, dialect):
-        if value is None:
+        if value is None or dialect.name == "postgresql":
             return value
-        elif dialect.name == 'postgresql':
-            return value
-        else:
-            from uuid import UUID
-            return UUID(value)
+        from uuid import UUID
+
+        return UUID(value)
 
 
 class JSONType(TypeDecorator):
     """Platform-independent JSON type.
     Uses PostgreSQL's JSONB type when available, otherwise uses JSON.
     """
+
     impl = JSON
     cache_ok = True
 
     def load_dialect_impl(self, dialect):
-        if dialect.name == 'postgresql':
+        if dialect.name == "postgresql":
             return dialect.type_descriptor(JSONB())
-        else:
-            return dialect.type_descriptor(JSON())
+        return dialect.type_descriptor(JSON())
 
 
 # Use our custom types
@@ -101,6 +106,7 @@ class EvidenceTypeDB(PyEnum):
 
 class Case(Base):
     """Legal case container for evidence."""
+
     __tablename__ = "cases"
 
     id = Column(UUID(), primary_key=True, default=uuid4)
@@ -122,13 +128,12 @@ class Case(Base):
     # Relationships
     evidence_records = relationship("EvidenceRecord", back_populates="case")
 
-    __table_args__ = (
-        Index('ix_cases_status_created', 'status', 'created_at'),
-    )
+    __table_args__ = (Index("ix_cases_status_created", "status", "created_at"),)
 
 
 class EvidenceRecord(Base):
     """Primary evidence storage with integrity verification."""
+
     __tablename__ = "evidence"
 
     id = Column(UUID(), primary_key=True, default=uuid4)
@@ -174,14 +179,15 @@ class EvidenceRecord(Base):
     analysis_results = relationship("AnalysisResult", back_populates="evidence")
 
     __table_args__ = (
-        Index('ix_evidence_case_status', 'case_id', 'status'),
-        Index('ix_evidence_type_created', 'evidence_type', 'created_at'),
-        Index('ix_evidence_hash', 'original_hash'),
+        Index("ix_evidence_case_status", "case_id", "status"),
+        Index("ix_evidence_type_created", "evidence_type", "created_at"),
+        Index("ix_evidence_hash", "original_hash"),
     )
 
 
 class ChainOfCustodyLog(Base):
     """Immutable chain of custody audit log (FRE 901 compliant)."""
+
     __tablename__ = "chain_of_custody"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
@@ -212,13 +218,12 @@ class ChainOfCustodyLog(Base):
     # Relationship
     evidence = relationship("EvidenceRecord", back_populates="custody_entries")
 
-    __table_args__ = (
-        Index('ix_custody_evidence_timestamp', 'evidence_id', 'timestamp'),
-    )
+    __table_args__ = (Index("ix_custody_evidence_timestamp", "evidence_id", "timestamp"),)
 
 
 class AnalysisResult(Base):
     """Detailed analysis results from each agent."""
+
     __tablename__ = "analysis_results"
 
     id = Column(UUID(), primary_key=True, default=uuid4)
@@ -241,13 +246,12 @@ class AnalysisResult(Base):
     # Relationship
     evidence = relationship("EvidenceRecord", back_populates="analysis_results")
 
-    __table_args__ = (
-        Index('ix_analysis_evidence_agent', 'evidence_id', 'agent_type'),
-    )
+    __table_args__ = (Index("ix_analysis_evidence_agent", "evidence_id", "agent_type"),)
 
 
 class AnalysisJob(Base):
     """Background job tracking for async processing."""
+
     __tablename__ = "analysis_jobs"
 
     id = Column(UUID(), primary_key=True, default=uuid4)
@@ -267,13 +271,12 @@ class AnalysisJob(Base):
     error_message = Column(Text)
     retry_count = Column(BigInteger, default=0)
 
-    __table_args__ = (
-        Index('ix_jobs_status', 'status'),
-    )
+    __table_args__ = (Index("ix_jobs_status", "status"),)
 
 
 class User(Base):
     """System users for audit trail."""
+
     __tablename__ = "users"
 
     id = Column(UUID(), primary_key=True, default=uuid4)
@@ -294,6 +297,7 @@ class User(Base):
 
 class AuditLog(Base):
     """System-wide audit log for compliance."""
+
     __tablename__ = "audit_log"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
@@ -313,6 +317,6 @@ class AuditLog(Base):
     new_value = Column(JSONType)
 
     __table_args__ = (
-        Index('ix_audit_timestamp', 'timestamp'),
-        Index('ix_audit_user_action', 'user_id', 'action'),
+        Index("ix_audit_timestamp", "timestamp"),
+        Index("ix_audit_user_action", "user_id", "action"),
     )

@@ -1,22 +1,20 @@
-"""
-Evidence Suite - Redis Caching Layer
+"""Evidence Suite - Redis Caching Layer
 Caching for analysis results, embeddings, and computed values.
 """
-import json
-import hashlib
-from typing import Optional, Any, Dict, Union
-from datetime import timedelta
-import pickle
 
-from loguru import logger
+import hashlib
+import json
+import pickle
+from typing import Any
+
 import redis.asyncio as redis
+from loguru import logger
 
 from core.config import redis_settings
 
 
 class CacheManager:
-    """
-    Redis-based caching for Evidence Suite.
+    """Redis-based caching for Evidence Suite.
 
     Features:
     - Analysis result caching
@@ -25,9 +23,9 @@ class CacheManager:
     - Configurable TTLs
     """
 
-    def __init__(self, url: Optional[str] = None):
+    def __init__(self, url: str | None = None):
         self.url = url or redis_settings.url
-        self._client: Optional[redis.Redis] = None
+        self._client: redis.Redis | None = None
         self._is_connected = False
 
     async def connect(self) -> bool:
@@ -60,7 +58,7 @@ class CacheManager:
 
     # ----- Analysis Result Caching -----
 
-    async def get_analysis(self, evidence_id: str) -> Optional[Dict]:
+    async def get_analysis(self, evidence_id: str) -> dict | None:
         """Get cached analysis result."""
         if not self._is_connected:
             return None
@@ -74,12 +72,7 @@ class CacheManager:
             logger.warning(f"Cache get failed: {e}")
         return None
 
-    async def set_analysis(
-        self,
-        evidence_id: str,
-        result: Dict,
-        ttl: Optional[int] = None
-    ) -> bool:
+    async def set_analysis(self, evidence_id: str, result: dict, ttl: int | None = None) -> bool:
         """Cache analysis result."""
         if not self._is_connected:
             return False
@@ -109,7 +102,7 @@ class CacheManager:
 
     # ----- Embedding Caching -----
 
-    async def get_embedding(self, text_hash: str) -> Optional[bytes]:
+    async def get_embedding(self, text_hash: str) -> bytes | None:
         """Get cached BERT embedding."""
         if not self._is_connected:
             return None
@@ -121,12 +114,7 @@ class CacheManager:
             logger.warning(f"Embedding cache get failed: {e}")
             return None
 
-    async def set_embedding(
-        self,
-        text_hash: str,
-        embedding: bytes,
-        ttl: Optional[int] = None
-    ) -> bool:
+    async def set_embedding(self, text_hash: str, embedding: bytes, ttl: int | None = None) -> bool:
         """Cache BERT embedding."""
         if not self._is_connected:
             return False
@@ -147,7 +135,7 @@ class CacheManager:
 
     # ----- Evidence Deduplication -----
 
-    async def check_evidence_exists(self, file_hash: str) -> Optional[str]:
+    async def check_evidence_exists(self, file_hash: str) -> str | None:
         """Check if evidence with hash already exists, return evidence ID if so."""
         if not self._is_connected:
             return None
@@ -164,7 +152,7 @@ class CacheManager:
         self,
         file_hash: str,
         evidence_id: str,
-        ttl: int = 86400 * 30  # 30 days
+        ttl: int = 86400 * 30,  # 30 days
     ) -> bool:
         """Register evidence hash for deduplication."""
         if not self._is_connected:
@@ -180,7 +168,7 @@ class CacheManager:
 
     # ----- Job Queue -----
 
-    async def enqueue_job(self, job_id: str, job_data: Dict) -> bool:
+    async def enqueue_job(self, job_id: str, job_data: dict) -> bool:
         """Add job to processing queue."""
         if not self._is_connected:
             return False
@@ -194,7 +182,7 @@ class CacheManager:
             logger.warning(f"Job enqueue failed: {e}")
             return False
 
-    async def dequeue_job(self) -> Optional[Dict]:
+    async def dequeue_job(self) -> dict | None:
         """Get next job from queue."""
         if not self._is_connected:
             return None
@@ -219,7 +207,7 @@ class CacheManager:
             logger.warning(f"Job status update failed: {e}")
             return False
 
-    async def get_job_status(self, job_id: str) -> Optional[str]:
+    async def get_job_status(self, job_id: str) -> str | None:
         """Get job status."""
         if not self._is_connected:
             return None
@@ -233,12 +221,7 @@ class CacheManager:
 
     # ----- Rate Limiting -----
 
-    async def check_rate_limit(
-        self,
-        key: str,
-        limit: int,
-        window_seconds: int
-    ) -> bool:
+    async def check_rate_limit(self, key: str, limit: int, window_seconds: int) -> bool:
         """Check if rate limit is exceeded."""
         if not self._is_connected:
             return True  # Allow if cache unavailable
@@ -257,7 +240,7 @@ class CacheManager:
 
     # ----- Query Result Caching -----
 
-    async def get_query_result(self, query_key: str) -> Optional[Any]:
+    async def get_query_result(self, query_key: str) -> Any | None:
         """Get cached query result."""
         if not self._is_connected:
             return None
@@ -275,7 +258,7 @@ class CacheManager:
         self,
         query_key: str,
         result: Any,
-        ttl: int = 300  # 5 minutes default
+        ttl: int = 300,  # 5 minutes default
     ) -> bool:
         """Cache query result."""
         if not self._is_connected:
@@ -314,7 +297,7 @@ class CacheManager:
 
     # ----- Batch Operations -----
 
-    async def mget(self, keys: list[str], prefix: str = "") -> Dict[str, Any]:
+    async def mget(self, keys: list[str], prefix: str = "") -> dict[str, Any]:
         """Get multiple values at once."""
         if not self._is_connected or not keys:
             return {}
@@ -334,12 +317,7 @@ class CacheManager:
             logger.warning(f"Batch get failed: {e}")
             return {}
 
-    async def mset(
-        self,
-        items: Dict[str, Any],
-        prefix: str = "",
-        ttl: Optional[int] = None
-    ) -> bool:
+    async def mset(self, items: dict[str, Any], prefix: str = "", ttl: int | None = None) -> bool:
         """Set multiple values at once."""
         if not self._is_connected or not items:
             return False
@@ -376,7 +354,7 @@ class CacheManager:
 
     # ----- Cache Info -----
 
-    async def get_cache_info(self) -> Dict[str, Any]:
+    async def get_cache_info(self) -> dict[str, Any]:
         """Get cache statistics and info."""
         if not self._is_connected:
             return {"status": "disconnected"}
@@ -389,8 +367,10 @@ class CacheManager:
                 "status": "connected",
                 "used_memory": info.get("used_memory_human", "unknown"),
                 "used_memory_peak": info.get("used_memory_peak_human", "unknown"),
-                "connected_clients": (await self._client.info("clients")).get("connected_clients", 0),
-                "keyspace": keyspace
+                "connected_clients": (await self._client.info("clients")).get(
+                    "connected_clients", 0
+                ),
+                "keyspace": keyspace,
             }
         except Exception as e:
             logger.warning(f"Cache info failed: {e}")
@@ -411,7 +391,7 @@ class CacheManager:
             logger.warning(f"Stat increment failed: {e}")
             return False
 
-    async def get_stats(self) -> Dict[str, int]:
+    async def get_stats(self) -> dict[str, int]:
         """Get all statistics."""
         if not self._is_connected:
             return {}
@@ -430,7 +410,7 @@ class CacheManager:
 
 
 # Singleton instance
-_cache_manager: Optional[CacheManager] = None
+_cache_manager: CacheManager | None = None
 
 
 async def get_cache() -> CacheManager:

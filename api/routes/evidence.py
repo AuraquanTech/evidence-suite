@@ -1,32 +1,33 @@
-"""
-Evidence Suite - Evidence Routes
-"""
+"""Evidence Suite - Evidence Routes"""
+
 import hashlib
 import os
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
-from sqlalchemy import select, func
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import (
-    EvidenceRecord,
-    Case,
-    ChainOfCustodyLog,
-    EvidenceStatus as DBEvidenceStatus,
-    EvidenceTypeDB,
-)
-from core.database.session import get_db
 from api.schemas.evidence import (
-    EvidenceType,
-    EvidenceStatus,
-    EvidenceResponse,
-    EvidenceListResponse,
     ChainOfCustodyEntry,
     ChainOfCustodyResponse,
+    EvidenceListResponse,
+    EvidenceResponse,
+    EvidenceStatus,
+    EvidenceType,
 )
+from core.database import (
+    Case,
+    ChainOfCustodyLog,
+    EvidenceRecord,
+    EvidenceTypeDB,
+)
+from core.database import (
+    EvidenceStatus as DBEvidenceStatus,
+)
+from core.database.session import get_db
+
 
 router = APIRouter(prefix="/evidence", tags=["Evidence"])
 
@@ -41,8 +42,8 @@ async def upload_evidence(
     case_id: UUID = Form(...),
     evidence_type: EvidenceType = Form(...),
     file: UploadFile = File(...),
-    description: Optional[str] = Form(None),
-    db: AsyncSession = Depends(get_db)
+    description: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
 ):
     """Upload new evidence to a case."""
     # Verify case exists
@@ -58,14 +59,12 @@ async def upload_evidence(
     # Check for duplicate hash
     existing = await db.execute(
         select(EvidenceRecord).where(
-            EvidenceRecord.case_id == case_id,
-            EvidenceRecord.original_hash == file_hash
+            EvidenceRecord.case_id == case_id, EvidenceRecord.original_hash == file_hash
         )
     )
     if existing.scalar_one_or_none():
         raise HTTPException(
-            status_code=409,
-            detail="Evidence with identical hash already exists in this case"
+            status_code=409, detail="Evidence with identical hash already exists in this case"
         )
 
     # Create storage path (placeholder - should use proper storage service)
@@ -122,12 +121,12 @@ async def upload_evidence(
 
 @router.get("/", response_model=EvidenceListResponse)
 async def list_evidence(
-    case_id: Optional[UUID] = None,
-    status: Optional[EvidenceStatus] = None,
-    evidence_type: Optional[EvidenceType] = None,
+    case_id: UUID | None = None,
+    status: EvidenceStatus | None = None,
+    evidence_type: EvidenceType | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """List evidence with pagination and filtering."""
     query = select(EvidenceRecord)
@@ -182,14 +181,9 @@ async def list_evidence(
 
 
 @router.get("/{evidence_id}", response_model=EvidenceResponse)
-async def get_evidence(
-    evidence_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_evidence(evidence_id: UUID, db: AsyncSession = Depends(get_db)):
     """Get evidence by ID."""
-    result = await db.execute(
-        select(EvidenceRecord).where(EvidenceRecord.id == evidence_id)
-    )
+    result = await db.execute(select(EvidenceRecord).where(EvidenceRecord.id == evidence_id))
     evidence = result.scalar_one_or_none()
 
     if not evidence:
@@ -216,10 +210,7 @@ async def get_evidence(
 
 
 @router.get("/{evidence_id}/chain-of-custody", response_model=ChainOfCustodyResponse)
-async def get_chain_of_custody(
-    evidence_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_chain_of_custody(evidence_id: UUID, db: AsyncSession = Depends(get_db)):
     """Get chain of custody for evidence."""
     # Verify evidence exists
     evidence_result = await db.execute(
@@ -269,24 +260,16 @@ async def get_chain_of_custody(
 
 
 @router.post("/{evidence_id}/verify", response_model=EvidenceResponse)
-async def verify_evidence(
-    evidence_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
+async def verify_evidence(evidence_id: UUID, db: AsyncSession = Depends(get_db)):
     """Verify evidence integrity and mark as verified."""
-    result = await db.execute(
-        select(EvidenceRecord).where(EvidenceRecord.id == evidence_id)
-    )
+    result = await db.execute(select(EvidenceRecord).where(EvidenceRecord.id == evidence_id))
     evidence = result.scalar_one_or_none()
 
     if not evidence:
         raise HTTPException(status_code=404, detail="Evidence not found")
 
     if evidence.status != DBEvidenceStatus.ANALYZED:
-        raise HTTPException(
-            status_code=400,
-            detail="Evidence must be analyzed before verification"
-        )
+        raise HTTPException(status_code=400, detail="Evidence must be analyzed before verification")
 
     # Verify file hash
     if evidence.storage_path and os.path.exists(evidence.storage_path):
@@ -296,8 +279,7 @@ async def verify_evidence(
             evidence.status = DBEvidenceStatus.FLAGGED
             await db.commit()
             raise HTTPException(
-                status_code=409,
-                detail="Evidence hash mismatch - file may have been tampered"
+                status_code=409, detail="Evidence hash mismatch - file may have been tampered"
             )
 
     evidence.status = DBEvidenceStatus.VERIFIED

@@ -1,33 +1,30 @@
-"""
-Evidence Suite - OCR Agent
+"""Evidence Suite - OCR Agent
 Multi-engine OCR processing with Tesseract and EasyOCR.
 """
+
 from __future__ import annotations
+
 import io
-from typing import Any, Dict, List, Optional, Tuple
-from loguru import logger
+from typing import Any
+
 import numpy as np
+from loguru import logger
 from PIL import Image
 
-from core.models import (
-    EvidencePacket,
-    AnalysisResult,
-    ProcessingStage,
-    EvidenceType
-)
-from core.config import OCRConfig, default_config, hw_settings
 from agents.base import BaseAgent
+from core.config import OCRConfig, default_config
+from core.models import AnalysisResult, EvidencePacket, EvidenceType, ProcessingStage
 
 
-def _check_gpu_support() -> Tuple[bool, str]:
-    """
-    Check if GPU is available and supports EasyOCR (PyTorch).
+def _check_gpu_support() -> tuple[bool, str]:
+    """Check if GPU is available and supports EasyOCR (PyTorch).
     Returns (use_gpu, reason).
 
     Note: RTX 5090 Blackwell (sm_120) is NOT supported by PyTorch.
     """
     try:
         import torch
+
         if not torch.cuda.is_available():
             return False, "CUDA not available"
 
@@ -55,8 +52,7 @@ def _check_gpu_support() -> Tuple[bool, str]:
 
 
 class OCRAgent(BaseAgent):
-    """
-    Sensory layer agent for optical character recognition.
+    """Sensory layer agent for optical character recognition.
 
     Features:
     - Dual-engine support (Tesseract + EasyOCR)
@@ -65,15 +61,9 @@ class OCRAgent(BaseAgent):
     - Multi-language support
     """
 
-    def __init__(
-        self,
-        agent_id: Optional[str] = None,
-        config: Optional[OCRConfig] = None
-    ):
+    def __init__(self, agent_id: str | None = None, config: OCRConfig | None = None):
         super().__init__(
-            agent_id=agent_id,
-            agent_type="ocr",
-            config=(config or default_config.ocr).model_dump()
+            agent_id=agent_id, agent_type="ocr", config=(config or default_config.ocr).model_dump()
         )
         self.ocr_config = config or default_config.ocr
         self._tesseract = None
@@ -87,6 +77,7 @@ class OCRAgent(BaseAgent):
         if "tesseract" in engines:
             try:
                 import pytesseract
+
                 pytesseract.pytesseract.tesseract_cmd = self.ocr_config.tesseract_path
                 # Test that tesseract works
                 pytesseract.get_tesseract_version()
@@ -104,18 +95,14 @@ class OCRAgent(BaseAgent):
                 use_gpu, gpu_reason = _check_gpu_support()
                 logger.info(f"EasyOCR GPU check: {gpu_reason}")
 
-                self._easyocr_reader = easyocr.Reader(
-                    self.ocr_config.languages,
-                    gpu=use_gpu
-                )
+                self._easyocr_reader = easyocr.Reader(self.ocr_config.languages, gpu=use_gpu)
                 device_str = "GPU" if use_gpu else "CPU"
                 logger.info(f"EasyOCR initialized on {device_str}")
             except Exception as e:
                 logger.warning(f"EasyOCR initialization failed: {e}")
 
     async def _process_impl(self, packet: EvidencePacket) -> EvidencePacket:
-        """
-        Process an evidence packet through OCR.
+        """Process an evidence packet through OCR.
 
         Handles:
         - Image files (JPEG, PNG, TIFF, etc.)
@@ -124,11 +111,9 @@ class OCRAgent(BaseAgent):
         """
         # If already text, just pass through
         if packet.evidence_type == EvidenceType.TEXT and packet.raw_content:
-            text = packet.raw_content.decode('utf-8', errors='ignore')
+            text = packet.raw_content.decode("utf-8", errors="ignore")
             return packet.with_updates(
-                extracted_text=text,
-                ocr_confidence=1.0,
-                stage=ProcessingStage.OCR_PROCESSED
+                extracted_text=text, ocr_confidence=1.0, stage=ProcessingStage.OCR_PROCESSED
             )
 
         # Need image data
@@ -157,26 +142,23 @@ class OCRAgent(BaseAgent):
                 "engines_used": list(results.keys()),
                 "char_count": len(final_text),
                 "word_count": len(final_text.split()),
-                "per_engine_confidence": {
-                    k: v["confidence"] for k, v in results.items()
-                }
-            }
+                "per_engine_confidence": {k: v["confidence"] for k, v in results.items()},
+            },
         )
 
         return packet.with_updates(
             extracted_text=final_text,
             ocr_confidence=confidence,
             stage=ProcessingStage.OCR_PROCESSED,
-            analysis_results=packet.analysis_results + [analysis]
+            analysis_results=packet.analysis_results + [analysis],
         )
 
     def _load_image(self, content: bytes) -> Image.Image:
         """Load image from bytes."""
-        return Image.open(io.BytesIO(content)).convert('RGB')
+        return Image.open(io.BytesIO(content)).convert("RGB")
 
     def _preprocess_image(self, image: Image.Image) -> Image.Image:
-        """
-        Preprocess image for better OCR accuracy.
+        """Preprocess image for better OCR accuracy.
         - Convert to grayscale
         - Apply adaptive thresholding
         - Deskew if enabled
@@ -206,10 +188,7 @@ class OCRAgent(BaseAgent):
             img = ((img - min_val) / (max_val - min_val) * 255).astype(np.uint8)
         return img
 
-    async def _run_ocr_engines(
-        self,
-        image: Image.Image
-    ) -> Dict[str, Dict[str, Any]]:
+    async def _run_ocr_engines(self, image: Image.Image) -> dict[str, dict[str, Any]]:
         """Run all available OCR engines on the image."""
         results = {}
 
@@ -234,35 +213,29 @@ class OCRAgent(BaseAgent):
 
         return results
 
-    def _run_tesseract(self, image: Image.Image) -> Dict[str, Any]:
+    def _run_tesseract(self, image: Image.Image) -> dict[str, Any]:
         """Run Tesseract OCR."""
         # Get detailed data including confidence
         data = self._tesseract.image_to_data(
-            image,
-            lang='+'.join(self.ocr_config.languages),
-            output_type=self._tesseract.Output.DICT
+            image, lang="+".join(self.ocr_config.languages), output_type=self._tesseract.Output.DICT
         )
 
         # Extract text and calculate average confidence
         texts = []
         confidences = []
 
-        for i, text in enumerate(data['text']):
-            conf = data['conf'][i]
+        for i, text in enumerate(data["text"]):
+            conf = data["conf"][i]
             if conf > 0 and text.strip():
                 texts.append(text)
                 confidences.append(conf / 100.0)
 
-        full_text = ' '.join(texts)
+        full_text = " ".join(texts)
         avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
 
-        return {
-            "text": full_text,
-            "confidence": avg_confidence,
-            "word_count": len(texts)
-        }
+        return {"text": full_text, "confidence": avg_confidence, "word_count": len(texts)}
 
-    def _run_easyocr(self, image: Image.Image) -> Dict[str, Any]:
+    def _run_easyocr(self, image: Image.Image) -> dict[str, Any]:
         """Run EasyOCR."""
         img_array = np.array(image)
 
@@ -277,21 +250,13 @@ class OCRAgent(BaseAgent):
                 texts.append(text)
                 confidences.append(conf)
 
-        full_text = ' '.join(texts)
+        full_text = " ".join(texts)
         avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
 
-        return {
-            "text": full_text,
-            "confidence": avg_confidence,
-            "word_count": len(texts)
-        }
+        return {"text": full_text, "confidence": avg_confidence, "word_count": len(texts)}
 
-    def _fuse_results(
-        self,
-        results: Dict[str, Dict[str, Any]]
-    ) -> Tuple[str, float]:
-        """
-        Fuse results from multiple OCR engines.
+    def _fuse_results(self, results: dict[str, dict[str, Any]]) -> tuple[str, float]:
+        """Fuse results from multiple OCR engines.
 
         Strategy: Confidence-weighted selection
         - If one engine has significantly higher confidence, use it
@@ -302,11 +267,7 @@ class OCRAgent(BaseAgent):
             return result["text"], result["confidence"]
 
         # Sort by confidence
-        sorted_results = sorted(
-            results.items(),
-            key=lambda x: x[1]["confidence"],
-            reverse=True
-        )
+        sorted_results = sorted(results.items(), key=lambda x: x[1]["confidence"], reverse=True)
 
         best_engine, best_result = sorted_results[0]
         second_engine, second_result = sorted_results[1]
@@ -318,14 +279,12 @@ class OCRAgent(BaseAgent):
         # Otherwise, prefer the one with more content
         if best_result["word_count"] >= second_result["word_count"]:
             return best_result["text"], best_result["confidence"]
-        else:
-            # Second has more words but lower confidence - average
-            avg_conf = (best_result["confidence"] + second_result["confidence"]) / 2
-            return second_result["text"], avg_conf
+        # Second has more words but lower confidence - average
+        avg_conf = (best_result["confidence"] + second_result["confidence"]) / 2
+        return second_result["text"], avg_conf
 
     async def self_critique(self, result: AnalysisResult) -> float:
-        """
-        Self-critique OCR quality.
+        """Self-critique OCR quality.
 
         Factors:
         - Base confidence from engines

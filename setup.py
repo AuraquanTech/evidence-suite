@@ -1,7 +1,7 @@
-"""
-Evidence Suite - Quick Setup Script
+"""Evidence Suite - Quick Setup Script
 Run this to install dependencies and verify the setup.
 """
+
 import subprocess
 import sys
 from pathlib import Path
@@ -26,8 +26,7 @@ def main():
 
     try:
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-r", str(requirements_file)],
-            check=True
+            [sys.executable, "-m", "pip", "install", "-r", str(requirements_file)], check=True
         )
         print("  Dependencies installed successfully!")
     except subprocess.CalledProcessError as e:
@@ -38,11 +37,9 @@ def main():
     print("\n[3/4] Verifying Tesseract OCR...")
     try:
         result = subprocess.run(
-            ["tesseract", "--version"],
-            capture_output=True,
-            text=True
+            ["tesseract", "--version"], check=False, capture_output=True, text=True
         )
-        version = result.stdout.split('\n')[0]
+        version = result.stdout.split("\n")[0]
         print(f"  Tesseract: {version}")
     except FileNotFoundError:
         print("  WARNING: Tesseract not found in PATH")
@@ -54,6 +51,7 @@ def main():
         sys.path.insert(0, str(project_dir))
         from core.models import EvidencePacket
         from pipeline import EvidencePipeline
+
         print("  Core imports: OK")
     except ImportError as e:
         print(f"  ERROR: Import failed: {e}")

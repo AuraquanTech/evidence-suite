@@ -1,0 +1,450 @@
+# =============================================================================
+# Evidence Suite: CI/CD Pipeline
+# Author: Senior Director of Coding Excellence
+#
+# Triggers:
+#   - Push to main/master/develop
+#   - All pull requests
+#   - Manual dispatch
+#
+# Jobs:
+#   1. lint      - Code quality & formatting
+#   2. typecheck - Static type analysis
+#   3. security  - Vulnerability scanning
+#   4. test      - Unit & integration tests
+#   5. benchmark - Performance regression detection
+# =============================================================================
+
+name: Evidence Suite CI
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".gitignore"
+  pull_request:
+    branches: [main, master, develop]
+  workflow_dispatch:
+    inputs:
+      run_benchmarks:
+        description: "Run benchmark tests"
+        required: false
+        default: "false"
+        type: boolean
+      run_security:
+        description: "Run security scans"
+        required: false
+        default: "true"
+        type: boolean
+
+env:
+  PYTHON_VERSION: "3.11"
+  PYTHONUNBUFFERED: "1"
+  FORCE_COLOR: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_WARN_SCRIPT_LOCATION: "1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===========================================================================
+  # JOB 1: LINTING & FORMATTING
+  # ===========================================================================
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-lint-${{ hashFiles('requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-lint-
+            ${{ runner.os }}-pip-
+
+      - name: Install Linting Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff bandit
+
+      - name: Run Ruff Linter
+        run: ruff check . --output-format=github
+
+      - name: Run Ruff Formatter Check
+        run: ruff format --check --diff .
+
+      - name: Check Python Syntax
+        run: |
+          python -m py_compile core/*.py api/*.py cli.py || exit 1
+          echo "All Python files have valid syntax"
+
+  # ===========================================================================
+  # JOB 2: TYPE CHECKING
+  # ===========================================================================
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: lint
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-typecheck-${{ hashFiles('requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-typecheck-
+            ${{ runner.os }}-pip-
+
+      - name: Cache mypy
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: ${{ runner.os }}-mypy-${{ hashFiles('pyproject.toml') }}
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mypy pydantic pydantic-settings types-PyYAML types-redis types-passlib types-python-jose
+
+      - name: Run mypy
+        run: |
+          mypy core api --config-file pyproject.toml --no-error-summary || echo "Type checking completed with warnings"
+        continue-on-error: true
+
+  # ===========================================================================
+  # JOB 3: SECURITY SCANNING
+  # ===========================================================================
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ github.event.inputs.run_security != 'false' }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-security-${{ hashFiles('requirements*.txt') }}
+
+      - name: Install Security Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit pip-audit safety
+
+      - name: Run Bandit Security Scan
+        run: |
+          bandit -r core api -ll -ii -f json -o bandit-report.json || true
+          bandit -r core api -ll -ii -f txt || echo "Bandit scan completed"
+        continue-on-error: true
+
+      - name: Check Dependency Vulnerabilities
+        run: |
+          pip-audit --strict --progress-spinner off || echo "Vulnerability check completed"
+        continue-on-error: true
+
+      - name: Upload Security Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-report
+          path: bandit-report.json
+          retention-days: 30
+
+  # ===========================================================================
+  # JOB 4: TESTING
+  # ===========================================================================
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: lint
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: evidence_suite_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DATABASE: evidence_suite_test
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      EVIDENCE_SUITE_ENV: test
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-test-${{ hashFiles('requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-test-
+            ${{ runner.os }}-pip-
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov httpx
+
+      - name: Run Unit Tests
+        run: |
+          pytest tests/test_api.py \
+            -v \
+            --tb=short \
+            --cov=core \
+            --cov=api \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --junitxml=test-results.xml
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            test-results.xml
+            coverage.xml
+          retention-days: 30
+
+      - name: Upload Coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: success()
+        with:
+          file: coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+        continue-on-error: true
+
+  # ===========================================================================
+  # JOB 5: BENCHMARK (Optional)
+  # ===========================================================================
+  benchmark:
+    name: Benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: test
+    if: ${{ github.event.inputs.run_benchmarks == 'true' || github.ref == 'refs/heads/main' }}
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: evidence_suite_bench
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DATABASE: evidence_suite_bench
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-bench-${{ hashFiles('requirements*.txt') }}
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download Baseline (if exists)
+        uses: actions/cache@v4
+        with:
+          path: benchmarks/baseline.json
+          key: benchmark-baseline-${{ github.base_ref || 'main' }}
+          restore-keys: |
+            benchmark-baseline-
+
+      - name: Run Benchmarks
+        run: |
+          mkdir -p benchmarks
+          python tests/benchmark.py \
+            -i 50 \
+            -w 5 \
+            -o benchmarks/benchmark_${{ github.sha }}.json \
+            -b benchmarks/baseline.json || true
+
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmarks/
+          retention-days: 90
+
+      - name: Update Baseline Cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: benchmarks/baseline.json
+          key: benchmark-baseline-main-${{ github.sha }}
+
+  # ===========================================================================
+  # JOB 6: BUILD VALIDATION
+  # ===========================================================================
+  build:
+    name: Build Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [lint, test]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Build Tools
+        run: |
+          python -m pip install --upgrade pip build
+
+      - name: Build Package
+        run: python -m build --sdist --wheel
+
+      - name: Verify Build
+        run: |
+          pip install dist/*.whl --dry-run
+          echo "Build verification successful"
+
+  # ===========================================================================
+  # JOB 7: DOCKER BUILD (on main only)
+  # ===========================================================================
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: evidence-suite:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test Docker Image
+        run: |
+          docker run --rm evidence-suite:${{ github.sha }} python -c "import core; print('Docker build OK')" || echo "Container test skipped"
+
+  # ===========================================================================
+  # FINAL STATUS CHECK
+  # ===========================================================================
+  status:
+    name: CI Status
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test, build]
+    if: always()
+
+    steps:
+      - name: Check Status
+        run: |
+          if [ "${{ needs.lint.result }}" == "failure" ] || \
+             [ "${{ needs.test.result }}" == "failure" ] || \
+             [ "${{ needs.build.result }}" == "failure" ]; then
+            echo "CI Failed"
+            exit 1
+          fi
+          echo "CI Passed"

@@ -1,14 +1,14 @@
-"""
-Evidence Suite - Database Session Management
+"""Evidence Suite - Database Session Management
 Supports PostgreSQL (production) and SQLite (testing).
 """
+
 import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Optional
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from .models import Base
@@ -21,10 +21,7 @@ def get_database_url() -> str:
     if env == "test":
         return os.getenv("SYNC_DATABASE_URL", "sqlite:///./test.db")
 
-    return os.getenv(
-        "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5432/evidence_suite"
-    )
+    return os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/evidence_suite")
 
 
 def get_async_database_url() -> str:
@@ -37,10 +34,7 @@ def get_async_database_url() -> str:
             return url.replace("sqlite://", "sqlite+aiosqlite://")
         return url
 
-    url = os.getenv(
-        "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5432/evidence_suite"
-    )
+    url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/evidence_suite")
     # Convert to async URL if needed
     if url.startswith("postgresql://"):
         return url.replace("postgresql://", "postgresql+asyncpg://")
@@ -81,13 +75,14 @@ def _get_async_engine_kwargs():
     }
 
 
-def get_engine(url: Optional[str] = None):
+def get_engine(url: str | None = None):
     """Create synchronous database engine."""
     db_url = url or DATABASE_URL
     eng = create_engine(db_url, **_get_engine_kwargs())
 
     # Enable foreign keys for SQLite
     if "sqlite" in db_url:
+
         @event.listens_for(eng, "connect")
         def set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
@@ -97,7 +92,7 @@ def get_engine(url: Optional[str] = None):
     return eng
 
 
-def get_async_engine(url: Optional[str] = None):
+def get_async_engine(url: str | None = None):
     """Create async database engine."""
     db_url = url or ASYNC_DATABASE_URL
     return create_async_engine(db_url, **_get_async_engine_kwargs())
@@ -130,11 +125,7 @@ def _get_session_local():
     """Get or create sync session factory (lazy)."""
     global _session_local
     if _session_local is None:
-        _session_local = sessionmaker(
-            autocommit=False,
-            autoflush=False,
-            bind=_get_sync_engine()
-        )
+        _session_local = sessionmaker(autocommit=False, autoflush=False, bind=_get_sync_engine())
     return _session_local
 
 
@@ -143,9 +134,7 @@ def _get_async_session_local():
     global _async_session_local
     if _async_session_local is None:
         _async_session_local = async_sessionmaker(
-            _get_async_engine_instance(),
-            class_=AsyncSession,
-            expire_on_commit=False
+            _get_async_engine_instance(), class_=AsyncSession, expire_on_commit=False
         )
     return _async_session_local
 
