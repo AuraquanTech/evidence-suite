@@ -63,32 +63,54 @@ class PreCommitChecker:
             print(f"{prefix} {message}")
 
     def run_unit_tests(self) -> Tuple[bool, str]:
-        """Run unit tests."""
+        """Run unit tests using direct pytest import for reliability."""
         self.log("Running unit tests...")
 
         try:
-            result = subprocess.run(
-                [sys.executable, "-m", "pytest", "tests/test_api.py", "-v", "--tb=short"],
-                cwd=str(PROJECT_ROOT),
-                capture_output=True,
-                text=True,
-                timeout=120,
-                env={**os.environ, "EVIDENCE_SUITE_ENV": "test"}
-            )
+            # Import pytest directly for more reliable execution
+            import pytest
+            import io
+            import contextlib
 
-            # Parse results
-            if "passed" in result.stdout:
-                passed_count = result.stdout.count(" passed")
-                self.log(f"Unit tests completed with {passed_count} passed", "PASS")
-                return True, result.stdout
-            elif result.returncode != 0:
-                self.log("Unit tests failed", "FAIL")
-                return False, result.stdout + result.stderr
-            return True, result.stdout
+            # Capture output
+            stdout_capture = io.StringIO()
 
-        except subprocess.TimeoutExpired:
-            self.log("Unit tests timed out", "FAIL")
-            return False, "Timeout"
+            # Set test environment
+            original_env = os.environ.get("EVIDENCE_SUITE_ENV")
+            os.environ["EVIDENCE_SUITE_ENV"] = "test"
+
+            try:
+                # Run pytest programmatically
+                with contextlib.redirect_stdout(stdout_capture):
+                    exit_code = pytest.main([
+                        "tests/test_api.py",
+                        "-v", "--tb=short", "-q",
+                        "--no-header"
+                    ])
+
+                stdout = stdout_capture.getvalue()
+
+                # Parse results
+                import re
+                if exit_code == 0:
+                    match = re.search(r'(\d+) passed', stdout)
+                    passed_count = match.group(1) if match else "all"
+                    self.log(f"Unit tests completed with {passed_count} passed", "PASS")
+                    return True, stdout
+                else:
+                    self.log(f"Unit tests failed (exit code {exit_code})", "FAIL")
+                    return False, stdout
+
+            finally:
+                # Restore environment
+                if original_env is not None:
+                    os.environ["EVIDENCE_SUITE_ENV"] = original_env
+                else:
+                    os.environ.pop("EVIDENCE_SUITE_ENV", None)
+
+        except ImportError:
+            self.log("pytest not installed, skipping unit tests", "WARN")
+            return True, "pytest not available"
         except Exception as e:
             self.log(f"Unit test error: {e}", "FAIL")
             return False, str(e)
