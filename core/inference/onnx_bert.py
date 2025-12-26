@@ -279,8 +279,8 @@ class ONNXBertInference:
         return self._device in ["cuda", "tensorrt"]
 
 
-# Singleton instance
-_bert_instance: Optional[ONNXBertInference] = None
+# Singleton instances by model name
+_bert_instances: Dict[str, ONNXBertInference] = {}
 
 
 def get_bert_inference(
@@ -299,14 +299,19 @@ def get_bert_inference(
     Returns:
         Initialized ONNXBertInference instance
     """
-    global _bert_instance
+    global _bert_instances
 
-    if _bert_instance is None:
-        _bert_instance = ONNXBertInference(
+    cache_key = f"{model_name}_{use_gpu}_{use_fp16}"
+
+    if cache_key not in _bert_instances:
+        instance = ONNXBertInference(
             model_name=model_name,
             use_gpu=use_gpu,
             use_fp16=use_fp16,
         )
-        _bert_instance.initialize()
+        if instance.initialize():
+            _bert_instances[cache_key] = instance
+        else:
+            raise RuntimeError("ONNX BERT initialization failed")
 
-    return _bert_instance
+    return _bert_instances[cache_key]

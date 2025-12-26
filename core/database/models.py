@@ -1,7 +1,9 @@
 """
 Evidence Suite - Database Models
 SQLAlchemy ORM models for FRE-compliant evidence storage.
+Supports PostgreSQL (production) and SQLite (testing).
 """
+import os
 from datetime import datetime
 from enum import Enum as PyEnum
 from typing import Optional, Dict, Any, List
@@ -9,13 +11,66 @@ from uuid import uuid4
 
 from sqlalchemy import (
     Column, String, DateTime, Float, Boolean, Text, BigInteger,
-    ForeignKey, Enum, JSON, LargeBinary, Index
+    ForeignKey, Enum, JSON, LargeBinary, Index, TypeDecorator
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import CHAR, TypeDecorator as TD
 
 Base = declarative_base()
+
+# Check if we're using SQLite (for tests)
+_IS_SQLITE = os.getenv("EVIDENCE_SUITE_ENV") == "test"
+
+
+class GUID(TypeDecorator):
+    """Platform-independent GUID type.
+    Uses PostgreSQL's UUID type when available, otherwise stores as CHAR(36).
+    """
+    impl = CHAR
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(PG_UUID(as_uuid=True))
+        else:
+            return dialect.type_descriptor(CHAR(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        elif dialect.name == 'postgresql':
+            return value
+        else:
+            return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        elif dialect.name == 'postgresql':
+            return value
+        else:
+            from uuid import UUID
+            return UUID(value)
+
+
+class JSONType(TypeDecorator):
+    """Platform-independent JSON type.
+    Uses PostgreSQL's JSONB type when available, otherwise uses JSON.
+    """
+    impl = JSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(JSONB())
+        else:
+            return dialect.type_descriptor(JSON())
+
+
+# Use our custom types
+UUID = GUID
 
 
 class CaseStatus(PyEnum):
@@ -48,7 +103,7 @@ class Case(Base):
     """Legal case container for evidence."""
     __tablename__ = "cases"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(UUID(), primary_key=True, default=uuid4)
     case_number = Column(String(100), unique=True, index=True, nullable=False)
     title = Column(String(500), nullable=False)
     description = Column(Text)
@@ -76,8 +131,8 @@ class EvidenceRecord(Base):
     """Primary evidence storage with integrity verification."""
     __tablename__ = "evidence"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    case_id = Column(UUID(as_uuid=True), ForeignKey("cases.id"), nullable=False)
+    id = Column(UUID(), primary_key=True, default=uuid4)
+    case_id = Column(UUID(), ForeignKey("cases.id"), nullable=False)
 
     # Evidence metadata
     evidence_type = Column(Enum(EvidenceTypeDB), nullable=False)
@@ -95,10 +150,10 @@ class EvidenceRecord(Base):
     # Extracted content
     extracted_text = Column(Text)
 
-    # Analysis results (JSONB for complex nested data)
-    behavioral_indicators = Column(JSONB)
-    fusion_results = Column(JSONB)
-    ocr_results = Column(JSONB)
+    # Analysis results (JSON for complex nested data)
+    behavioral_indicators = Column(JSONType)
+    fusion_results = Column(JSONType)
+    ocr_results = Column(JSONType)
 
     # Scores
     fused_score = Column(Float)
@@ -110,8 +165,8 @@ class EvidenceRecord(Base):
     analyzed_at = Column(DateTime)
     verified_at = Column(DateTime)
 
-    # Metadata
-    metadata = Column(JSONB, default={})
+    # Extra metadata
+    extra_data = Column(JSONType, default={})
 
     # Relationships
     case = relationship("Case", back_populates="evidence_records")
@@ -130,7 +185,7 @@ class ChainOfCustodyLog(Base):
     __tablename__ = "chain_of_custody"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    evidence_id = Column(UUID(as_uuid=True), ForeignKey("evidence.id"), nullable=False)
+    evidence_id = Column(UUID(), ForeignKey("evidence.id"), nullable=False)
 
     # Entry details
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -151,8 +206,8 @@ class ChainOfCustodyLog(Base):
     signature = Column(String(512))
     signer_id = Column(String(100))
 
-    # Metadata
-    metadata = Column(JSONB, default={})
+    # Extra data
+    extra_data = Column(JSONType, default={})
 
     # Relationship
     evidence = relationship("EvidenceRecord", back_populates="custody_entries")
@@ -166,15 +221,15 @@ class AnalysisResult(Base):
     """Detailed analysis results from each agent."""
     __tablename__ = "analysis_results"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    evidence_id = Column(UUID(as_uuid=True), ForeignKey("evidence.id"), nullable=False)
+    id = Column(UUID(), primary_key=True, default=uuid4)
+    evidence_id = Column(UUID(), ForeignKey("evidence.id"), nullable=False)
 
     # Agent info
     agent_type = Column(String(50), nullable=False)  # ocr, behavioral, fusion
     agent_id = Column(String(100))
 
     # Results
-    result_data = Column(JSONB, nullable=False)
+    result_data = Column(JSONType, nullable=False)
     confidence = Column(Float)
 
     # Performance
@@ -195,8 +250,8 @@ class AnalysisJob(Base):
     """Background job tracking for async processing."""
     __tablename__ = "analysis_jobs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    evidence_id = Column(UUID(as_uuid=True), ForeignKey("evidence.id"), nullable=False)
+    id = Column(UUID(), primary_key=True, default=uuid4)
+    evidence_id = Column(UUID(), ForeignKey("evidence.id"), nullable=False)
 
     # Job status
     status = Column(String(20), default="pending")  # pending, running, completed, failed
@@ -221,7 +276,7 @@ class User(Base):
     """System users for audit trail."""
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(UUID(), primary_key=True, default=uuid4)
     email = Column(String(255), unique=True, nullable=False)
     name = Column(String(200))
     role = Column(String(50), default="analyst")  # admin, analyst, reviewer, viewer
@@ -244,7 +299,7 @@ class AuditLog(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    user_id = Column(UUID(), ForeignKey("users.id"))
     action = Column(String(100), nullable=False)
     resource_type = Column(String(50))
     resource_id = Column(String(100))
@@ -254,8 +309,8 @@ class AuditLog(Base):
     user_agent = Column(String(500))
 
     # Change details
-    old_value = Column(JSONB)
-    new_value = Column(JSONB)
+    old_value = Column(JSONType)
+    new_value = Column(JSONType)
 
     __table_args__ = (
         Index('ix_audit_timestamp', 'timestamp'),

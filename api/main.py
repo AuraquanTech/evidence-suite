@@ -15,23 +15,55 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.config import api_settings, db_settings
 from core.database.session import init_db_async
+from core.logging import configure_logging, get_logger
+from api.middleware import RequestLoggingMiddleware, SecurityHeadersMiddleware
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
+    # Initialize logging
+    logger = configure_logging(
+        log_dir="./logs",
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
+        json_format=True,
+    )
+
     # Startup
-    print("Starting Evidence Suite API...")
+    logger.info("Starting Evidence Suite API...")
+
+    # Initialize database
     try:
         await init_db_async()
-        print("Database initialized")
+        logger.info("Database initialized")
     except Exception as e:
-        print(f"Database initialization warning: {e}")
+        logger.warning(f"Database initialization warning: {e}")
 
+    # Initialize Redis cache
+    try:
+        from core.cache import get_cache
+        cache = await get_cache()
+        if cache.is_connected:
+            logger.info("Redis cache connected")
+        else:
+            logger.info("Redis cache not available - running without cache")
+    except Exception as e:
+        logger.warning(f"Redis cache warning: {e}")
+
+    logger.info("Evidence Suite API started successfully")
     yield
 
     # Shutdown
-    print("Shutting down Evidence Suite API...")
+    logger.info("Shutting down Evidence Suite API...")
+
+    # Close cache connection
+    try:
+        from core.cache import close_cache
+        await close_cache()
+    except Exception:
+        pass
+
+    logger.info("Evidence Suite API shutdown complete")
 
 
 # Create FastAPI application
@@ -53,13 +85,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Custom middleware
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
 
 # Import and include routers
 from api.routes import cases_router, evidence_router, analysis_router
+from api.auth import router as auth_router
+from api.websocket import router as websocket_router
 
 app.include_router(cases_router, prefix="/api/v1")
 app.include_router(evidence_router, prefix="/api/v1")
 app.include_router(analysis_router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(websocket_router)
 
 
 @app.get("/")
@@ -82,9 +122,22 @@ async def health_check():
     }
 
 
+@app.get("/metrics")
+async def get_metrics():
+    """Get application metrics."""
+    logger = get_logger()
+    return logger.get_metrics()
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler."""
+    logger = get_logger()
+    logger.error(
+        f"Unhandled exception: {str(exc)}",
+        path=request.url.path,
+        method=request.method,
+    )
     return JSONResponse(
         status_code=500,
         content={

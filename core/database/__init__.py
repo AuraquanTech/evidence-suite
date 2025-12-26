@@ -17,8 +17,10 @@ from .models import (
 from .session import (
     get_engine,
     get_session,
+    get_async_session_local,
     init_db,
-    AsyncSessionLocal,
+    init_db_async,
+    get_db,
 )
 
 __all__ = [
@@ -35,6 +37,8 @@ __all__ = [
     "AuditLog",
     "get_engine",
     "get_session",
+    "get_async_session_local",
     "init_db",
-    "AsyncSessionLocal",
+    "init_db_async",
+    "get_db",
 ]

@@ -87,7 +87,7 @@ async def upload_evidence(
         original_hash=file_hash,
         storage_path=storage_path,
         status=DBEvidenceStatus.PENDING,
-        metadata={"description": description} if description else {},
+        extra_data={"description": description} if description else {},
     )
     db.add(evidence)
 
@@ -116,7 +116,7 @@ async def upload_evidence(
         original_hash=evidence.original_hash,
         status=EvidenceStatus(evidence.status.value),
         created_at=evidence.created_at,
-        metadata=evidence.metadata,
+        metadata=evidence.extra_data,
     )
 
 
@@ -167,7 +167,7 @@ async def list_evidence(
             created_at=e.created_at,
             analyzed_at=e.analyzed_at,
             verified_at=e.verified_at,
-            metadata=e.metadata,
+            metadata=e.extra_data,
         )
         for e in records
     ]
@@ -211,7 +211,7 @@ async def get_evidence(
         created_at=evidence.created_at,
         analyzed_at=evidence.analyzed_at,
         verified_at=evidence.verified_at,
-        metadata=evidence.metadata,
+        metadata=evidence.extra_data,
     )
 
 
@@ -334,5 +334,5 @@ async def verify_evidence(
         created_at=evidence.created_at,
         analyzed_at=evidence.analyzed_at,
         verified_at=evidence.verified_at,
-        metadata=evidence.metadata,
+        metadata=evidence.extra_data,
     )
