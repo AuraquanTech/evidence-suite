@@ -16,7 +16,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.config import api_settings, db_settings
 from core.database.session import init_db_async
 from core.logging import configure_logging, get_logger
-from api.middleware import RequestLoggingMiddleware, SecurityHeadersMiddleware
+from api.middleware import (
+    RequestLoggingMiddleware,
+    SecurityHeadersMiddleware,
+    RequestTimeoutMiddleware,
+    CompressionMiddleware,
+)
 
 
 @asynccontextmanager
@@ -85,9 +90,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Custom middleware
-app.add_middleware(RequestLoggingMiddleware)
+# Custom middleware (order matters - executed in reverse order of registration)
+# 1. Security headers (outermost - always applied)
 app.add_middleware(SecurityHeadersMiddleware)
+# 2. Compression (compress responses before sending)
+app.add_middleware(CompressionMiddleware)
+# 3. Timeout (enforce request timeouts)
+app.add_middleware(RequestTimeoutMiddleware, timeout_seconds=30)
+# 4. Logging (innermost - logs actual request/response)
+app.add_middleware(RequestLoggingMiddleware)
 
 
 # Import and include routers

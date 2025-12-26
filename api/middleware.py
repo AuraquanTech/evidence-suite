@@ -1,15 +1,120 @@
 """
 Evidence Suite - API Middleware
-Request logging, metrics, and error handling middleware.
+Request logging, metrics, compression, timeout handling, and security.
 """
+import asyncio
+import gzip
 import time
 import uuid
-from typing import Callable
+from typing import Callable, Optional
+from io import BytesIO
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import StreamingResponse
 
 from core.logging import get_logger
+
+
+# Configuration
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
+COMPRESSION_MIN_SIZE = 1000  # Minimum response size for compression
+COMPRESSION_LEVEL = 6  # gzip compression level (1-9)
+
+
+class RequestTimeoutMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to enforce request timeout limits.
+    Prevents long-running requests from consuming resources.
+    """
+
+    def __init__(self, app, timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS):
+        super().__init__(app)
+        self.timeout_seconds = timeout_seconds
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # Allow longer timeout for file uploads
+        timeout = self.timeout_seconds
+        if request.url.path.endswith("/upload"):
+            timeout = 120  # 2 minutes for uploads
+
+        try:
+            return await asyncio.wait_for(
+                call_next(request),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            logger = get_logger()
+            logger.warning(
+                f"Request timeout after {timeout}s",
+                path=request.url.path,
+                method=request.method,
+            )
+            return Response(
+                content='{"detail": "Request timeout"}',
+                status_code=504,
+                media_type="application/json"
+            )
+
+
+class CompressionMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware for gzip response compression.
+    Compresses responses larger than threshold when client supports it.
+    """
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # Check if client accepts gzip
+        accept_encoding = request.headers.get("accept-encoding", "")
+        if "gzip" not in accept_encoding.lower():
+            return await call_next(request)
+
+        response = await call_next(request)
+
+        # Skip if already streaming or compressed
+        if isinstance(response, StreamingResponse):
+            return response
+        if response.headers.get("content-encoding"):
+            return response
+
+        # Get response body
+        body = b""
+        async for chunk in response.body_iterator:
+            body += chunk
+
+        # Only compress if large enough
+        if len(body) < COMPRESSION_MIN_SIZE:
+            return Response(
+                content=body,
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                media_type=response.media_type
+            )
+
+        # Compress
+        buffer = BytesIO()
+        with gzip.GzipFile(mode='wb', fileobj=buffer, compresslevel=COMPRESSION_LEVEL) as gz:
+            gz.write(body)
+        compressed_body = buffer.getvalue()
+
+        # Only use compressed if smaller
+        if len(compressed_body) < len(body):
+            headers = dict(response.headers)
+            headers["content-encoding"] = "gzip"
+            headers["content-length"] = str(len(compressed_body))
+            return Response(
+                content=compressed_body,
+                status_code=response.status_code,
+                headers=headers,
+                media_type=response.media_type
+            )
+
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.media_type
+        )
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
