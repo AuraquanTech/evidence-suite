@@ -14,6 +14,23 @@ class AnalysisStatus(str, Enum):
     FAILED = "failed"
 
 
+class RoutingDecision(str, Enum):
+    """Routing decisions for analysis output."""
+
+    AUTO_OK = "auto_ok"  # Clean, can go to client
+    REVIEW = "review"  # Needs human review
+    NEEDS_DOCS = "needs_docs"  # Missing documentation
+    BLOCKED = "blocked"  # Hard stop, cannot proceed
+
+
+class BlockReason(BaseModel):
+    """Reason why output was blocked or flagged."""
+
+    code: str
+    detail: str
+    severity: str = "high"  # critical, high, medium, low
+
+
 class BehavioralIndicators(BaseModel):
     """Behavioral analysis results."""
 
@@ -93,3 +110,62 @@ class BatchAnalysisResponse(BaseModel):
     job_ids: list[UUID]
     total_items: int
     status: str = "queued"
+
+
+# =============================================================================
+# GATED OUTPUT SCHEMAS - Separate internal vs client-facing responses
+# =============================================================================
+
+
+class InternalAnalysisResponse(BaseModel):
+    """Full analysis response for INTERNAL use only.
+
+    Includes all data, routing decision, and block reasons.
+    Use for internal dashboards, review queues, debugging.
+    """
+
+    evidence_id: UUID
+    case_id: UUID | None = None
+    status: AnalysisStatus
+    routing: RoutingDecision
+    block_reasons: list[BlockReason] = []
+
+    # Full behavioral data
+    behavioral_indicators: BehavioralIndicators | None = None
+    fusion_results: FusionResults | None = None
+
+    # Raw data
+    ocr_text: str | None = None
+    extracted_text_preview: str | None = None
+
+    # Metadata
+    processing_time_ms: float
+    analyzed_at: datetime
+    stages_completed: list[str] = []
+    errors: list[str] = []
+
+
+class ClientAnalysisResponse(BaseModel):
+    """Safe analysis response for CLIENT-FACING use.
+
+    Only returned when routing == AUTO_OK.
+    Sensitive details are redacted.
+    """
+
+    evidence_id: UUID
+    case_id: UUID | None = None
+    status: str = "complete"
+    classification: str | None = None
+    confidence: float | None = None
+    summary: str
+
+
+class RoutingStatusResponse(BaseModel):
+    """Response showing routing status for an evidence item."""
+
+    evidence_id: UUID
+    routing: RoutingDecision
+    block_reasons: list[BlockReason] = []
+    can_send_to_client: bool = False
+    requires_review: bool = False
+    missing_documentation: bool = False

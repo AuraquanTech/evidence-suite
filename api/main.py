@@ -20,6 +20,7 @@ from api.middleware import (
     RequestTimeoutMiddleware,
     SecurityHeadersMiddleware,
 )
+from api.rate_limit import RateLimitMiddleware
 from core.config import api_settings, db_settings
 from core.database.session import init_db_async
 from core.logging import configure_logging, get_logger
@@ -96,23 +97,33 @@ app.add_middleware(
 # Custom middleware (order matters - executed in reverse order of registration)
 # 1. Security headers (outermost - always applied)
 app.add_middleware(SecurityHeadersMiddleware)
-# 2. Compression (compress responses before sending)
+# 2. Rate limiting (prevent abuse)
+app.add_middleware(RateLimitMiddleware)
+# 3. Compression (compress responses before sending)
 app.add_middleware(CompressionMiddleware)
-# 3. Timeout (enforce request timeouts)
+# 4. Timeout (enforce request timeouts)
 app.add_middleware(RequestTimeoutMiddleware, timeout_seconds=30)
-# 4. Logging (innermost - logs actual request/response)
+# 5. Logging (innermost - logs actual request/response)
 app.add_middleware(RequestLoggingMiddleware)
 
 
 # Import and include routers
 from api.auth import router as auth_router
-from api.routes import analysis_router, cases_router, evidence_router
+from api.routes import (
+    analysis_router,
+    cases_router,
+    evidence_router,
+    exports_router,
+    reports_router,
+)
 from api.websocket import router as websocket_router
 
 
 app.include_router(cases_router, prefix="/api/v1")
 app.include_router(evidence_router, prefix="/api/v1")
 app.include_router(analysis_router, prefix="/api/v1")
+app.include_router(reports_router, prefix="/api/v1")
+app.include_router(exports_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(websocket_router)
 
