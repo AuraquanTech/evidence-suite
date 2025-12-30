@@ -165,6 +165,12 @@ async def get_current_user(
     if not token:
         return None
 
+    # Check if token is blacklisted
+    from core.security import is_token_blacklisted
+
+    if is_token_blacklisted(token):
+        return None
+
     try:
         payload = jwt.decode(
             token, api_settings.jwt_secret, algorithms=[api_settings.jwt_algorithm]
@@ -296,4 +302,71 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
         role=current_user.role,
         is_active=current_user.is_active,
         created_at=current_user.created_at,
+    )
+
+
+@router.post("/logout")
+async def logout(
+    token: str = Depends(oauth2_scheme),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Logout and invalidate current token.
+
+    The token will be blacklisted until it naturally expires.
+    """
+    from core.security import blacklist_token
+
+    if token:
+        # Blacklist for the remaining token lifetime
+        try:
+            payload = jwt.decode(
+                token,
+                api_settings.jwt_secret,
+                algorithms=[api_settings.jwt_algorithm],
+            )
+            exp = payload.get("exp", 0)
+            ttl = max(0, int(exp - time.time()))
+            blacklist_token(token, ttl=ttl)
+        except JWTError:
+            # Token invalid, blacklist anyway with default TTL
+            blacklist_token(token)
+
+    return {"message": "Successfully logged out"}
+
+
+@router.post("/refresh", response_model=Token)
+async def refresh_token(
+    token: str = Depends(oauth2_scheme),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Refresh access token.
+
+    Issues a new token and blacklists the old one.
+    """
+    from core.security import blacklist_token
+
+    # Blacklist old token
+    if token:
+        try:
+            payload = jwt.decode(
+                token,
+                api_settings.jwt_secret,
+                algorithms=[api_settings.jwt_algorithm],
+            )
+            exp = payload.get("exp", 0)
+            ttl = max(0, int(exp - time.time()))
+            blacklist_token(token, ttl=ttl)
+        except JWTError:
+            pass
+
+    # Issue new token
+    access_token = create_access_token(
+        data={"sub": str(current_user.id), "email": current_user.email, "role": current_user.role}
+    )
+
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=api_settings.jwt_expire_minutes * 60,
     )

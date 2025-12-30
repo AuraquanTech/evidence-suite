@@ -1,4 +1,6 @@
-"""Evidence Suite - Evidence Routes"""
+"""Evidence Suite - Evidence Routes
+Secured with authentication, file validation, and encryption.
+"""
 
 import hashlib
 import os
@@ -9,6 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.auth import get_current_active_user, require_role
 from api.schemas.evidence import (
     ChainOfCustodyEntry,
     ChainOfCustodyResponse,
@@ -22,14 +25,20 @@ from core.database import (
     ChainOfCustodyLog,
     EvidenceRecord,
     EvidenceTypeDB,
+    User,
 )
 from core.database import (
     EvidenceStatus as DBEvidenceStatus,
 )
 from core.database.session import get_db
+from core.security import FileValidator, file_validator, generate_safe_storage_path
 
 
 router = APIRouter(prefix="/evidence", tags=["Evidence"])
+
+# Storage configuration
+EVIDENCE_STORAGE_PATH = os.getenv("EVIDENCE_STORAGE_PATH", "./evidence_store")
+ENABLE_ENCRYPTION = os.getenv("EVIDENCE_ENCRYPTION_KEY") is not None
 
 
 def calculate_sha256(file_content: bytes) -> str:
@@ -44,8 +53,16 @@ async def upload_evidence(
     file: UploadFile = File(...),
     description: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
-    """Upload new evidence to a case."""
+    """Upload new evidence to a case.
+
+    Requires authentication. Files are validated for:
+    - Allowed MIME types and extensions
+    - Maximum file size
+    - Path traversal prevention
+    - Optional encryption at rest
+    """
     # Verify case exists
     case_result = await db.execute(select(Case).where(Case.id == case_id))
     case = case_result.scalar_one_or_none()
@@ -54,6 +71,18 @@ async def upload_evidence(
 
     # Read file content
     content = await file.read()
+    file_size = len(content)
+
+    # Validate file
+    is_valid, error = file_validator.validate(
+        filename=file.filename or "unknown",
+        content_type=file.content_type,
+        file_size=file_size,
+        content=content,
+    )
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid file: {error}")
+
     file_hash = calculate_sha256(content)
 
     # Check for duplicate hash
@@ -67,14 +96,29 @@ async def upload_evidence(
             status_code=409, detail="Evidence with identical hash already exists in this case"
         )
 
-    # Create storage path (placeholder - should use proper storage service)
-    storage_dir = f"./evidence_store/{case_id}"
-    os.makedirs(storage_dir, exist_ok=True)
-    storage_path = f"{storage_dir}/{file_hash[:16]}_{file.filename}"
+    # Generate safe storage path (prevents path traversal)
+    storage_path = generate_safe_storage_path(
+        base_dir=EVIDENCE_STORAGE_PATH,
+        case_id=str(case_id),
+        file_hash=file_hash,
+        filename=file.filename or "unknown",
+    )
 
-    # Save file
-    with open(storage_path, "wb") as f:
-        f.write(content)
+    # Create storage directory
+    storage_dir = os.path.dirname(storage_path)
+    os.makedirs(storage_dir, exist_ok=True)
+
+    # Encrypt and save file
+    if ENABLE_ENCRYPTION:
+        from core.encryption import encrypt_evidence
+
+        encrypted_content = encrypt_evidence(content, str(case_id))
+        with open(storage_path + ".enc", "wb") as f:
+            f.write(encrypted_content)
+        storage_path = storage_path + ".enc"
+    else:
+        with open(storage_path, "wb") as f:
+            f.write(content)
 
     # Create evidence record
     evidence = EvidenceRecord(
@@ -127,6 +171,7 @@ async def list_evidence(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """List evidence with pagination and filtering."""
     query = select(EvidenceRecord)
@@ -181,7 +226,11 @@ async def list_evidence(
 
 
 @router.get("/{evidence_id}", response_model=EvidenceResponse)
-async def get_evidence(evidence_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_evidence(
+    evidence_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Get evidence by ID."""
     result = await db.execute(select(EvidenceRecord).where(EvidenceRecord.id == evidence_id))
     evidence = result.scalar_one_or_none()
@@ -210,7 +259,11 @@ async def get_evidence(evidence_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{evidence_id}/chain-of-custody", response_model=ChainOfCustodyResponse)
-async def get_chain_of_custody(evidence_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_chain_of_custody(
+    evidence_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Get chain of custody for evidence."""
     # Verify evidence exists
     evidence_result = await db.execute(
@@ -260,7 +313,11 @@ async def get_chain_of_custody(evidence_id: UUID, db: AsyncSession = Depends(get
 
 
 @router.post("/{evidence_id}/verify", response_model=EvidenceResponse)
-async def verify_evidence(evidence_id: UUID, db: AsyncSession = Depends(get_db)):
+async def verify_evidence(
+    evidence_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "analyst")),
+):
     """Verify evidence integrity and mark as verified."""
     result = await db.execute(select(EvidenceRecord).where(EvidenceRecord.id == evidence_id))
     evidence = result.scalar_one_or_none()

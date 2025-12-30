@@ -1,5 +1,6 @@
 """Evidence Suite - Case Routes
 Optimized with repository pattern and eager loading.
+Secured with authentication.
 """
 
 from datetime import datetime
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.auth import get_current_active_user, require_role
 from api.schemas.cases import (
     CaseCreate,
     CaseListResponse,
@@ -16,7 +18,7 @@ from api.schemas.cases import (
     CaseStatus,
     CaseUpdate,
 )
-from core.database import Case
+from core.database import Case, User
 from core.database import CaseStatus as DBCaseStatus
 from core.database.repository import CaseRepository, get_case_repository
 from core.database.session import get_db
@@ -31,7 +33,11 @@ async def get_repo(db: AsyncSession = Depends(get_db)) -> CaseRepository:
 
 
 @router.post("/", response_model=CaseResponse, status_code=201)
-async def create_case(case_data: CaseCreate, db: AsyncSession = Depends(get_db)):
+async def create_case(
+    case_data: CaseCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Create a new case."""
     # Check for duplicate case number
     existing = await db.execute(select(Case).where(Case.case_number == case_data.case_number))
@@ -72,6 +78,7 @@ async def list_cases(
     status: CaseStatus | None = None,
     search: str | None = None,
     repo: CaseRepository = Depends(get_repo),
+    current_user: User = Depends(get_current_active_user),
 ):
     """List cases with pagination and filtering.
 
@@ -114,7 +121,11 @@ async def list_cases(
 
 
 @router.get("/{case_id}", response_model=CaseResponse)
-async def get_case(case_id: UUID, repo: CaseRepository = Depends(get_repo)):
+async def get_case(
+    case_id: UUID,
+    repo: CaseRepository = Depends(get_repo),
+    current_user: User = Depends(get_current_active_user),
+):
     """Get a case by ID.
 
     Optimized: Uses single query with JOIN for evidence count.
@@ -143,7 +154,12 @@ async def get_case(case_id: UUID, repo: CaseRepository = Depends(get_repo)):
 
 
 @router.patch("/{case_id}", response_model=CaseResponse)
-async def update_case(case_id: UUID, case_data: CaseUpdate, db: AsyncSession = Depends(get_db)):
+async def update_case(
+    case_id: UUID,
+    case_data: CaseUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Update a case."""
     result = await db.execute(select(Case).where(Case.id == case_id))
     case = result.scalar_one_or_none()
@@ -180,7 +196,11 @@ async def update_case(case_id: UUID, case_data: CaseUpdate, db: AsyncSession = D
 
 
 @router.delete("/{case_id}", status_code=204)
-async def delete_case(case_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_case(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin")),
+):
     """Delete a case (soft delete by archiving)."""
     result = await db.execute(select(Case).where(Case.id == case_id))
     case = result.scalar_one_or_none()

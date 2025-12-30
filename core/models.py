@@ -21,6 +21,7 @@ class EvidenceType(str, Enum):
     AUDIO = "audio"
     VIDEO = "video"
     DOCUMENT = "document"
+    EMAIL = "email"
     MIXED = "mixed"
 
 

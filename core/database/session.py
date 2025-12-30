@@ -1,17 +1,31 @@
 """Evidence Suite - Database Session Management
 Supports PostgreSQL (production) and SQLite (testing).
+Includes connection retry with exponential backoff.
 """
 
+import asyncio
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
+from functools import wraps
+from typing import TypeVar
 
-from sqlalchemy import create_engine, event
+from loguru import logger
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from .models import Base
+
+
+# Retry configuration
+MAX_RETRIES = int(os.getenv("DB_MAX_RETRIES", "5"))
+RETRY_BASE_DELAY = float(os.getenv("DB_RETRY_DELAY", "1.0"))
+RETRY_MAX_DELAY = float(os.getenv("DB_RETRY_MAX_DELAY", "30.0"))
+
+T = TypeVar("T")
 
 
 def get_database_url() -> str:
@@ -21,7 +35,20 @@ def get_database_url() -> str:
     if env == "test":
         return os.getenv("SYNC_DATABASE_URL", "sqlite:///./test.db")
 
-    return os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/evidence_suite")
+    url = os.getenv("DATABASE_URL", "")
+
+    # In production, require explicit DATABASE_URL
+    if env == "production" and not url:
+        raise RuntimeError(
+            "DATABASE_URL must be set in production mode. "
+            "Set EVIDENCE_SUITE_ENV=development for local development."
+        )
+
+    # Block SQLite in production
+    if env == "production" and url and "sqlite" in url.lower():
+        raise RuntimeError("SQLite is not supported in production mode. Use PostgreSQL.")
+
+    return url or "postgresql://postgres:postgres@localhost:5432/evidence_suite"
 
 
 def get_async_database_url() -> str:
@@ -34,7 +61,22 @@ def get_async_database_url() -> str:
             return url.replace("sqlite://", "sqlite+aiosqlite://")
         return url
 
-    url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/evidence_suite")
+    url = os.getenv("DATABASE_URL", "")
+
+    # In production, require explicit DATABASE_URL
+    if env == "production" and not url:
+        raise RuntimeError(
+            "DATABASE_URL must be set in production mode. "
+            "Set EVIDENCE_SUITE_ENV=development for local development."
+        )
+
+    # Block SQLite in production
+    if env == "production" and url and "sqlite" in url.lower():
+        raise RuntimeError("SQLite is not supported in production mode. Use PostgreSQL.")
+
+    if not url:
+        url = "postgresql://postgres:postgres@localhost:5432/evidence_suite"
+
     # Convert to async URL if needed
     if url.startswith("postgresql://"):
         return url.replace("postgresql://", "postgresql+asyncpg://")
@@ -203,3 +245,97 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 def get_async_session_local():
     """Get async session factory (for backward compatibility)."""
     return _get_async_session_local()
+
+
+async def with_retry(
+    func: Callable[..., T],
+    *args,
+    max_retries: int = MAX_RETRIES,
+    base_delay: float = RETRY_BASE_DELAY,
+    max_delay: float = RETRY_MAX_DELAY,
+    **kwargs,
+) -> T:
+    """Execute a database operation with exponential backoff retry.
+
+    Args:
+        func: Async function to execute
+        *args: Positional arguments for func
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay between retries
+        max_delay: Maximum delay between retries
+        **kwargs: Keyword arguments for func
+
+    Returns:
+        Result of func
+
+    Raises:
+        Last exception if all retries fail
+    """
+    last_exception = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            return await func(*args, **kwargs)
+        except OperationalError as e:
+            last_exception = e
+            if attempt == max_retries:
+                logger.error(f"Database operation failed after {max_retries} retries: {e}")
+                raise
+
+            # Calculate delay with exponential backoff and jitter
+            import random
+
+            delay = min(base_delay * (2**attempt) + random.uniform(0, 1), max_delay)
+
+            logger.warning(
+                f"Database operation failed (attempt {attempt + 1}/{max_retries + 1}), "
+                f"retrying in {delay:.1f}s: {e}"
+            )
+            await asyncio.sleep(delay)
+        except Exception:
+            # Don't retry non-operational errors
+            raise
+
+    raise last_exception  # type: ignore
+
+
+async def test_connection() -> bool:
+    """Test database connection.
+
+    Returns:
+        True if connection successful
+    """
+    try:
+        engine = _get_async_engine_instance()
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return True
+    except Exception as e:
+        logger.error(f"Database connection test failed: {e}")
+        return False
+
+
+async def wait_for_database(max_wait: float = 60.0, interval: float = 2.0) -> bool:
+    """Wait for database to become available.
+
+    Args:
+        max_wait: Maximum time to wait in seconds
+        interval: Time between connection attempts
+
+    Returns:
+        True if database became available
+    """
+    import time
+
+    start = time.time()
+
+    while time.time() - start < max_wait:
+        if await test_connection():
+            logger.info("Database connection established")
+            return True
+
+        logger.info(f"Waiting for database... ({time.time() - start:.0f}s / {max_wait:.0f}s)")
+        await asyncio.sleep(interval)
+
+    logger.error(f"Database not available after {max_wait}s")
+    return False

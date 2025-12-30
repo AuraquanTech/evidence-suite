@@ -69,6 +69,52 @@ class RefinementConfig(BaseModel):
     ami_threshold: float = 0.85  # Adjusted Mutual Information threshold
 
 
+class AudioConfig(BaseModel):
+    """Audio Agent configuration."""
+
+    whisper_model: str = "base"  # tiny, base, small, medium, large
+    language: str | None = None  # None = auto-detect
+    enable_diarization: bool = True
+    device: Literal["cuda", "cpu", "auto"] = "auto"
+    batch_size: int = 16
+    word_timestamps: bool = True
+
+
+class EmailConfig(BaseModel):
+    """Email Agent configuration."""
+
+    extract_attachments: bool = True
+    parse_headers: bool = True
+    detect_spoofing: bool = True
+    extract_urls: bool = True
+    max_attachment_size_mb: int = 50
+
+
+class VideoConfig(BaseModel):
+    """Video Agent configuration."""
+
+    extract_audio: bool = True
+    extract_frames: bool = True
+    frame_interval_seconds: float = 1.0
+    max_frames: int = 100
+    whisper_model: str = "base"
+    device: Literal["cuda", "cpu", "auto"] = "auto"
+    detect_faces: bool = False  # Disabled by default for privacy
+    scene_detection: bool = True
+    scene_threshold: float = 30.0
+
+
+class ImageConfig(BaseModel):
+    """Image Agent configuration."""
+
+    extract_exif: bool = True
+    detect_manipulation: bool = True
+    extract_text: bool = True  # OCR for images
+    device: Literal["cuda", "cpu", "auto"] = "auto"
+    hash_algorithms: list[str] = ["sha256", "md5", "phash"]
+    max_image_size_mb: int = 100
+
+
 class Config(BaseModel):
     """Master configuration for Evidence Suite."""
 
@@ -87,6 +133,10 @@ class Config(BaseModel):
     behavioral: BehavioralConfig = Field(default_factory=BehavioralConfig)
     fusion: FusionConfig = Field(default_factory=FusionConfig)
     refinement: RefinementConfig = Field(default_factory=RefinementConfig)
+    audio: AudioConfig = Field(default_factory=AudioConfig)
+    email: EmailConfig = Field(default_factory=EmailConfig)
+    video: VideoConfig = Field(default_factory=VideoConfig)
+    image: ImageConfig = Field(default_factory=ImageConfig)
 
     # Storage
     event_store_url: str = "postgresql://localhost:5432/evidence_suite"

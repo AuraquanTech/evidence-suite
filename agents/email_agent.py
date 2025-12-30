@@ -129,8 +129,8 @@ class EmailAgent(BaseAgent):
             extracted_text=full_text,
             stage=ProcessingStage.OCR_PROCESSED,
             analysis_results=packet.analysis_results + [analysis],
-            metadata={
-                **packet.metadata,
+            source_metadata={
+                **packet.source_metadata,
                 "email_parsed": {
                     "headers": headers,
                     "attachments": [a["filename"] for a in attachments],

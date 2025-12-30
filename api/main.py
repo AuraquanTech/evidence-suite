@@ -1,8 +1,11 @@
 """Evidence Suite - FastAPI Application
 Forensic behavioral intelligence REST API.
+Production-ready with startup validation and graceful shutdown.
 """
 
+import asyncio
 import os
+import signal
 import sys
 from contextlib import asynccontextmanager
 
@@ -22,29 +25,65 @@ from api.middleware import (
 )
 from api.rate_limit import RateLimitMiddleware
 from core.config import api_settings, db_settings
-from core.database.session import init_db_async
+from core.database.session import init_db_async, wait_for_database
 from core.logging import configure_logging, get_logger
+
+
+# Shutdown event for graceful termination
+shutdown_event = asyncio.Event()
+
+
+def handle_shutdown_signal(signum, frame):
+    """Handle shutdown signals for graceful termination."""
+    logger = get_logger()
+    signal_name = signal.Signals(signum).name
+    logger.info(f"Received {signal_name}, initiating graceful shutdown...")
+    shutdown_event.set()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager."""
-    # Initialize logging
+    """Application lifespan manager with startup validation."""
+    # Initialize logging first
     logger = configure_logging(
         log_dir="./logs",
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         json_format=True,
     )
 
-    # Startup
     logger.info("Starting Evidence Suite API...")
+    env = os.getenv("EVIDENCE_SUITE_ENV", "development")
+    logger.info(f"Environment: {env}")
 
-    # Initialize database
+    # Run startup validation
+    try:
+        from core.startup import run_startup_validation
+
+        run_startup_validation(strict=(env == "production"))
+    except Exception as e:
+        logger.error(f"Startup validation failed: {e}")
+        if env == "production":
+            raise
+
+    # Wait for database to be available
+    db_available = await wait_for_database(
+        timeout=float(os.getenv("DB_STARTUP_TIMEOUT", "60")),
+        interval=2.0,
+    )
+
+    if not db_available:
+        if env == "production":
+            raise RuntimeError("Database not available - cannot start in production mode")
+        logger.warning("Database not available - some features may not work")
+
+    # Initialize database tables
     try:
         await init_db_async()
-        logger.info("Database initialized")
+        logger.info("Database tables initialized")
     except Exception as e:
         logger.warning(f"Database initialization warning: {e}")
+        if env == "production":
+            raise
 
     # Initialize Redis cache
     try:
@@ -58,17 +97,46 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Redis cache warning: {e}")
 
-    logger.info("Evidence Suite API started successfully")
+    # Register signal handlers for graceful shutdown
+    if sys.platform != "win32":
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, lambda s=sig: handle_shutdown_signal(s, None))
+    else:
+        # Windows doesn't support add_signal_handler
+        signal.signal(signal.SIGTERM, handle_shutdown_signal)
+        signal.signal(signal.SIGINT, handle_shutdown_signal)
+
+    # Mark app as ready
+    app.state.ready = True
+    logger.info("Evidence Suite API started successfully and ready to accept requests")
+
     yield
 
-    # Shutdown
+    # Graceful shutdown
     logger.info("Shutting down Evidence Suite API...")
+    app.state.ready = False
+
+    # Allow in-flight requests to complete (grace period)
+    grace_period = float(os.getenv("SHUTDOWN_GRACE_PERIOD", "10"))
+    logger.info(f"Waiting {grace_period}s for in-flight requests to complete...")
+    await asyncio.sleep(grace_period)
+
+    # Close worker pool if active
+    try:
+        from worker.client import close_worker_pool
+
+        await close_worker_pool()
+        logger.info("Worker pool closed")
+    except Exception:
+        pass
 
     # Close cache connection
     try:
         from core.cache import close_cache
 
         await close_cache()
+        logger.info("Cache connection closed")
     except Exception:
         pass
 
@@ -177,6 +245,45 @@ async def health_check():
     return health
 
 
+@app.get("/ready")
+async def readiness_check():
+    """Kubernetes-style readiness probe.
+
+    Returns 200 only when the application is ready to serve traffic.
+    """
+    if not getattr(app.state, "ready", False):
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "message": "Application is not ready"},
+        )
+
+    # Quick database check
+    try:
+        from core.database.session import test_connection
+
+        if not await test_connection():
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "message": "Database not connected"},
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "message": f"Database error: {e}"},
+        )
+
+    return {"status": "ready"}
+
+
+@app.get("/live")
+async def liveness_check():
+    """Kubernetes-style liveness probe.
+
+    Returns 200 if the application is alive (even if not fully ready).
+    """
+    return {"status": "alive"}
+
+
 @app.get("/health/db")
 async def database_health():
     """Detailed database health metrics."""
@@ -192,24 +299,35 @@ async def database_health():
 
 
 @app.get("/metrics")
-async def get_metrics():
-    """Get application metrics including database stats."""
+async def get_metrics_json():
+    """Get application metrics as JSON."""
     from core.database.monitoring import get_monitor
+    from core.metrics import collect_database_metrics, collect_system_metrics, get_metrics
 
-    logger = get_logger()
-    log_metrics = logger.get_metrics()
+    # Collect latest metrics
+    await collect_system_metrics()
+    await collect_database_metrics()
 
-    # Add database metrics
-    try:
-        monitor = get_monitor()
-        log_metrics["database"] = {
-            "pool": monitor.get_pool_stats(),
-            "queries": monitor.get_query_stats(),
-        }
-    except Exception:
-        log_metrics["database"] = {"status": "unavailable"}
+    metrics = get_metrics()
+    return metrics.get_all()
 
-    return log_metrics
+
+@app.get("/metrics/prometheus")
+async def get_metrics_prometheus():
+    """Get application metrics in Prometheus text format."""
+    from fastapi.responses import PlainTextResponse
+
+    from core.metrics import collect_database_metrics, collect_system_metrics, get_metrics
+
+    # Collect latest metrics
+    await collect_system_metrics()
+    await collect_database_metrics()
+
+    metrics = get_metrics()
+    return PlainTextResponse(
+        content=metrics.export_prometheus(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
 
 
 @app.exception_handler(Exception)

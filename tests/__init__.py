@@ -1,3 +1,1 @@
-"""
-Evidence Suite - Tests Package
-"""
+"""Evidence Suite - Test Suite"""
