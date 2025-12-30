@@ -46,7 +46,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 class Status(Enum):
     """Validation status."""
 
-    PASS = "PASS"
+    PASS = "PASS"  # nosec B105 - not a password, validation status
     FAIL = "FAIL"
     WARN = "WARN"
     SKIP = "SKIP"

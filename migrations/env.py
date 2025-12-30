@@ -1,11 +1,13 @@
 """
 Evidence Suite - Alembic Migration Environment
+Supports both sync (autogenerate) and async (upgrade/downgrade) modes.
 """
 
 import asyncio
+import os
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import create_engine, pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -22,8 +24,8 @@ from core.config import db_settings
 # Alembic Config object
 config = context.config
 
-# Override sqlalchemy.url with environment settings
-config.set_main_option("sqlalchemy.url", db_settings.url)
+# Set the sync URL for autogenerate and async URL for migrations
+config.set_main_option("sqlalchemy.url", db_settings.async_url)
 
 # Interpret the config file for Python logging
 if config.config_file_name is not None:
@@ -63,6 +65,23 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
+def run_migrations_online_sync() -> None:
+    """Run migrations using synchronous engine (for autogenerate)."""
+    connectable = create_engine(
+        db_settings.url,
+        poolclass=pool.NullPool,
+    )
+
+    with connectable.connect() as connection:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+        )
+
+        with context.begin_transaction():
+            context.run_migrations()
+
+
 async def run_async_migrations() -> None:
     """Run migrations in async mode."""
     connectable = async_engine_from_config(
@@ -80,10 +99,19 @@ async def run_async_migrations() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode.
 
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
+    Uses sync engine for autogenerate operations,
+    async engine for upgrade/downgrade operations.
     """
-    asyncio.run(run_async_migrations())
+    # Check if we're doing autogenerate (revision command)
+    # The revision command sets this attribute
+    is_autogenerate = getattr(context.config.cmd_opts, "autogenerate", False)
+
+    if is_autogenerate:
+        # Use sync engine for autogenerate to avoid async complexity
+        run_migrations_online_sync()
+    else:
+        # Use async engine for actual migrations
+        asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():
